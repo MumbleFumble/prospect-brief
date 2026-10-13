@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Prospect Brief</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #222; }
+h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy — Prospect Brief</h1>
+<p><strong>Last updated:</strong> October 12, 2026</p>
+<p>Prospect Brief is a Chrome extension that generates one-page sales briefs for company websites. This policy explains what data the extension handles and how.</p>
+
+<h2>Data stored locally</h2>
+<ul>
+<li><strong>Anthropic API key and model choice.</strong> Stored in <code>chrome.storage.local</code> on your device when you enter them in the extension's Options page. The key is never hardcoded, never committed to source code, and never sent anywhere except <code>api.anthropic.com</code>.</li>
+<li><strong>Cached briefs.</strong> Completed briefs are cached per-domain in <code>chrome.storage.local</code> for 24 hours to avoid repeat API calls. You can clear a domain's cache anytime with the Regenerate button.</li>
+</ul>
+
+<h2>Data sent over the network</h2>
+<p>When you click the Prospect Brief icon on a company website:</p>
+<ol>
+<li><strong>Page signals</strong> (page title, meta tags, visible text, script URLs, detected tech stack, cookie names — never cookie values) are sent to <code>api.anthropic.com</code> along with your API key, so Claude can generate the overview and talking points. This is governed by Anthropic's privacy policy.</li>
+<li><strong>A company name derived from the page</strong> (e.g. from the site title or domain) is sent to <code>news.google.com</code> to fetch recent headlines via Google News RSS.</li>
+</ol>
+<p>No data is sent to any other third party. There is no backend server operated by the extension author.</p>
+
+<h2>What we don't do</h2>
+<ul>
+<li>No analytics, telemetry, or user tracking of any kind.</li>
+<li>No advertising.</li>
+<li>We do not sell, share, or disclose your data to anyone except as described above.</li>
+</ul>
+
+<h2>Data retention</h2>
+<p>Cached briefs expire automatically after 24 hours. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.</p>
+
+<h2>Contact</h2>
+<p>For questions about this policy, open an issue at <a href="https://github.com/MumbleFumble/prospect-brief">github.com/MumbleFumble/prospect-brief</a>.</p>
+</body>
+</html>
