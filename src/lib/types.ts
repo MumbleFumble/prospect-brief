@@ -59,7 +59,15 @@ export interface Detection {
   evidence: string[];
 }
 
-/** Response carrying signals, detections, or an error. */
+/** A news headline about the company. */
+export interface NewsItem {
+  title: string;
+  link: string;
+  pubDate: string | null;
+  source: string | null;
+}
+
+/** Response carrying signals, detections, news, or an error. */
 export type CollectResponse =
-  | { ok: true; signals: PageSignals; detections: Detection[] }
+  | { ok: true; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
   | { ok: false; error: string };

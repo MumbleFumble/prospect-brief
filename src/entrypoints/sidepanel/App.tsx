@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
-import type { CollectResponse, Detection, PageSignals } from '../../lib/types';
+import type { CollectResponse, Detection, NewsItem, PageSignals } from '../../lib/types';
 
 type Status =
   | { kind: 'loading' }
-  | { kind: 'ready'; signals: PageSignals; detections: Detection[] }
+  | { kind: 'ready'; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
   | { kind: 'error'; message: string };
 
 async function getActiveTabId(): Promise<number> {
@@ -63,6 +63,32 @@ function StackSection({ detections }: { detections: Detection[] }) {
   );
 }
 
+function NewsSection({ news }: { news: NewsItem[] }) {
+  return (
+    <section>
+      <h2>Recent news</h2>
+      {news.length === 0 ? (
+        <p>No recent headlines found.</p>
+      ) : (
+        <ul>
+          {news.map((n, i) => (
+            <li key={i}>
+              <a href={n.link} target="_blank" rel="noreferrer">
+                {n.title}
+              </a>
+              <br />
+              <small>
+                {n.source ?? 'Unknown source'}
+                {n.pubDate ? ` — ${new Date(n.pubDate).toLocaleDateString()}` : ''}
+              </small>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [showRaw, setShowRaw] = useState(false);
@@ -77,7 +103,13 @@ export default function App() {
           tabId,
         })) as CollectResponse;
         if (cancelled) return;
-        if (res.ok) setStatus({ kind: 'ready', signals: res.signals, detections: res.detections });
+        if (res.ok)
+          setStatus({
+            kind: 'ready',
+            signals: res.signals,
+            detections: res.detections,
+            news: res.news,
+          });
         else setStatus({ kind: 'error', message: res.error });
       } catch (e) {
         if (!cancelled)
@@ -107,10 +139,13 @@ export default function App() {
             Brief for <code>{status.signals.dom.url}</code>
           </p>
           <StackSection detections={status.detections} />
-          <button onClick={() => setShowRaw((v) => !v)}>{showRaw ? 'Hide' : 'Show'} raw signals</button>
+          <NewsSection news={status.news} />
+          <button onClick={() => setShowRaw((v) => !v)}>
+            {showRaw ? 'Hide' : 'Show'} raw signals
+          </button>
           {showRaw && <pre>{JSON.stringify(status.signals, null, 2)}</pre>}
           <p>
-            <em>News, overview, and talking points land in steps 4–5.</em>
+            <em>Overview and talking points land in step 5.</em>
           </p>
         </>
       )}

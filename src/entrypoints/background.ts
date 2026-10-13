@@ -1,7 +1,8 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { collectDomSignals, collectMainWorldSignals } from '../lib/collectors';
 import { detectTech } from '../detection/engine';
-import type { CollectRequest, CollectResponse, PageSignals } from '../lib/types';
+import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
+import type { CollectRequest, CollectResponse, NewsItem, PageSignals } from '../lib/types';
 
 const RESTRICTED_RE = /^(chrome|chrome-extension|edge|about|view-source):/;
 
@@ -37,7 +38,8 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
   if (!tab.url || RESTRICTED_RE.test(tab.url)) {
     return {
       ok: false,
-      error: 'Cannot collect signals from this page (browser-restricted URL). Try a regular website.',
+      error:
+        'Cannot collect signals from this page (browser-restricted URL). Try a regular website.',
     };
   }
 
@@ -63,7 +65,17 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
 
     const headers = headersByTab.get(tabId) ?? {};
     const detections = detectTech(signals, headers);
-    return { ok: true, signals, detections };
+
+    // News fetch is best-effort; a failure shouldn't block the brief.
+    let news: NewsItem[] = [];
+    try {
+      const query = companyQueryFor(signals.dom.url, signals.dom.title, signals.dom.ogTags);
+      news = await new GoogleNewsRssProvider().fetchNews(query, 5);
+    } catch (e) {
+      console.warn('News fetch failed:', e);
+    }
+
+    return { ok: true, signals, detections, news };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -73,9 +85,7 @@ export default defineBackground(() => {
   startHeaderCapture();
 
   // Open the side panel when the toolbar icon is clicked.
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch(() => {});
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
   chrome.runtime.onMessage.addListener((msg: CollectRequest, _sender, sendResponse) => {
     if (msg?.type !== 'COLLECT_SIGNALS') return false;
