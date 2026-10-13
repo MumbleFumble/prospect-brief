@@ -69,6 +69,7 @@ async function callAnthropic(apiKey: string, model: string, prompt: string): Pro
       'content-type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': ANTHROPIC_VERSION,
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model,
