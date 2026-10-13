@@ -19,3 +19,55 @@ h1 {
   font-size: 1.25rem;
   margin: 0 0 0.5rem;
 }
+
+h2 {
+  font-size: 1.05rem;
+  margin: 1rem 0 0.25rem;
+  border-bottom: 1px solid #888;
+  padding-bottom: 0.25rem;
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+
+.badge.high {
+  background: #d4edda;
+  color: #155724;
+}
+
+.badge.medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.badge.low {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+pre {
+  font-size: 0.75rem;
+  overflow-x: auto;
+  background: #f4f4f4;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  pre {
+    background: #222;
+  }
+}
+
+code {
+  font-size: 0.8rem;
+}

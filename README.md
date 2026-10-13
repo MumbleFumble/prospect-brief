@@ -75,7 +75,7 @@ flowchart LR
 
 - [x] Step 1: scaffold, CI, README
 - [x] Step 2: side panel + raw page signals
-- [ ] Step 3: tech detection engine + tests
+- [x] Step 3: tech detection engine + tests
 - [ ] Step 4: news fetch + parse
 - [ ] Step 5: options page + LLM brief generation
 - [ ] Step 6: caching, regenerate, copy/export

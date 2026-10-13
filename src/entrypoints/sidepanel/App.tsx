@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { CollectResponse, PageSignals } from '../../lib/types';
+import { groupByCategory } from '../../detection/engine';
+import type { CollectResponse, Detection, PageSignals } from '../../lib/types';
 
 type Status =
   | { kind: 'loading' }
-  | { kind: 'ready'; signals: PageSignals }
+  | { kind: 'ready'; signals: PageSignals; detections: Detection[] }
   | { kind: 'error'; message: string };
 
 async function getActiveTabId(): Promise<number> {
@@ -12,8 +13,59 @@ async function getActiveTabId(): Promise<number> {
   return tab.id;
 }
 
+const CONFIDENCE_STYLE: Record<Detection['confidence'], string> = {
+  high: 'badge high',
+  medium: 'badge medium',
+  low: 'badge low',
+};
+
+function prettyCategory(cat: string): string {
+  return cat
+    .split('-')
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+function StackSection({ detections }: { detections: Detection[] }) {
+  if (detections.length === 0) {
+    return (
+      <section>
+        <h2>Likely tech stack</h2>
+        <p>No technologies detected from page signals.</p>
+      </section>
+    );
+  }
+  const groups = groupByCategory(detections);
+  return (
+    <section>
+      <h2>Likely tech stack</h2>
+      {[...groups.entries()].map(([category, items]) => (
+        <div key={category}>
+          <h3>{prettyCategory(category)}</h3>
+          <ul>
+            {items.map((d) => (
+              <li key={d.name}>
+                <strong>{d.name}</strong>{' '}
+                <span className={CONFIDENCE_STYLE[d.confidence]}>{d.confidence}</span>
+                <ul>
+                  {d.evidence.map((e, i) => (
+                    <li key={i}>
+                      <code>{e}</code>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
+  const [showRaw, setShowRaw] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +77,7 @@ export default function App() {
           tabId,
         })) as CollectResponse;
         if (cancelled) return;
-        if (res.ok) setStatus({ kind: 'ready', signals: res.signals });
+        if (res.ok) setStatus({ kind: 'ready', signals: res.signals, detections: res.detections });
         else setStatus({ kind: 'error', message: res.error });
       } catch (e) {
         if (!cancelled)
@@ -52,10 +104,14 @@ export default function App() {
       {status.kind === 'ready' && (
         <>
           <p>
-            Raw signals from <code>{status.signals.dom.url}</code> (step 2 — detection, news,
-            and brief generation land in steps 3–5).
+            Brief for <code>{status.signals.dom.url}</code>
           </p>
-          <pre>{JSON.stringify(status.signals, null, 2)}</pre>
+          <StackSection detections={status.detections} />
+          <button onClick={() => setShowRaw((v) => !v)}>{showRaw ? 'Hide' : 'Show'} raw signals</button>
+          {showRaw && <pre>{JSON.stringify(status.signals, null, 2)}</pre>}
+          <p>
+            <em>News, overview, and talking points land in steps 4–5.</em>
+          </p>
         </>
       )}
     </main>

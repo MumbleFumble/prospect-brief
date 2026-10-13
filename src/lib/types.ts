@@ -50,7 +50,16 @@ export interface CollectRequest {
   tabId: number;
 }
 
-/** Response carrying signals or an error. */
+/** A detected technology with confidence and evidence. */
+export interface Detection {
+  name: string;
+  category: string;
+  confidence: 'low' | 'medium' | 'high';
+  /** Human-readable evidence, e.g. 'script src matches /cdn.shopify.com/'. */
+  evidence: string[];
+}
+
+/** Response carrying signals, detections, or an error. */
 export type CollectResponse =
-  | { ok: true; signals: PageSignals }
+  | { ok: true; signals: PageSignals; detections: Detection[] }
   | { ok: false; error: string };
