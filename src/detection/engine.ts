@@ -1,4 +1,4 @@
-import type { Detection, MainWorldSignals, PageSignals } from '../lib/types';
+import type { Detection, PageSignals } from '../lib/types';
 import rulesData from './rules.json';
 
 /** Rule as stored in rules.json. All patterns are regex strings. */
