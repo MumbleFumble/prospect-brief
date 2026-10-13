@@ -4,6 +4,7 @@ import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { generateBrief } from '../lib/brief';
 import { getSettings } from '../lib/settings';
+import { domainFor, getCachedBrief, setCachedBrief, clearCachedBrief } from '../lib/cache';
 import type {
   BriefResponse,
   CollectRequest,
@@ -83,7 +84,17 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
       console.warn('News fetch failed:', e);
     }
 
-    return { ok: true, signals, detections, news };
+    // Include a cached brief if we have a fresh one for this domain.
+    const domain = domainFor(signals.dom.url);
+    const cached = await getCachedBrief(domain).catch(() => null);
+
+    return {
+      ok: true,
+      signals,
+      detections,
+      news,
+      ...(cached ? { cachedBrief: cached.brief, cachedAt: cached.cachedAt } : {}),
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -105,11 +116,24 @@ export default defineBackground(() => {
         try {
           const { apiKey, model } = await getSettings();
           const brief = await generateBrief(apiKey, model, msg.signals, msg.detections, msg.news);
+          // Cache the completed brief per domain (best-effort).
+          const domain = domainFor(msg.signals.dom.url);
+          await setCachedBrief({
+            domain,
+            brief,
+            signals: msg.signals,
+            detections: msg.detections,
+            news: msg.news,
+          }).catch((e) => console.warn('Cache write failed:', e));
           return { ok: true, brief };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       })().then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'CLEAR_CACHE') {
+      clearCachedBrief(domainFor(msg.url)).then(() => sendResponse({ ok: true }));
       return true;
     }
     return false;

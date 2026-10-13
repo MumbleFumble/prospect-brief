@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
@@ -14,16 +18,38 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "paths": {
-      "@": ["../src"],
-      "@/*": ["../src/*"],
-      "~": ["../src"],
-      "~/*": ["../src/*"],
-      "@@": [".."],
-      "@@/*": ["../*"],
-      "~~": [".."],
-      "~~/*": ["../*"]
+      "@": [
+        "../src"
+      ],
+      "@/*": [
+        "../src/*"
+      ],
+      "~": [
+        "../src"
+      ],
+      "~/*": [
+        "../src/*"
+      ],
+      "@@": [
+        ".."
+      ],
+      "@@/*": [
+        "../*"
+      ],
+      "~~": [
+        ".."
+      ],
+      "~~/*": [
+        "../*"
+      ]
     }
   },
-  "include": ["../**/*", "./wxt.d.ts"],
-  "exclude": ["../**/node_modules", "../.output"]
+  "include": [
+    "../**/*",
+    "./wxt.d.ts"
+  ],
+  "exclude": [
+    "../**/node_modules",
+    "../.output"
+  ]
 }

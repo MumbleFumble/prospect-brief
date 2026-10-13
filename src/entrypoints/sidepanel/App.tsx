@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
 import type { Brief } from '../../lib/brief';
+import { briefToMarkdown } from '../../lib/markdown';
+import { companyQueryFor } from '../../lib/news';
 import type {
   BriefResponse,
   CollectResponse,
@@ -11,18 +13,13 @@ import type {
 
 type Status =
   | { kind: 'loading' }
-  | {
-      kind: 'ready';
-      signals: PageSignals;
-      detections: Detection[];
-      news: NewsItem[];
-    }
+  | { kind: 'ready'; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
   | { kind: 'error'; message: string };
 
 type BriefStatus =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'ready'; brief: Brief }
+  | { kind: 'ready'; brief: Brief; cachedAt?: number }
   | { kind: 'error'; message: string };
 
 async function getActiveTabId(): Promise<number> {
@@ -107,7 +104,15 @@ function NewsSection({ news }: { news: NewsItem[] }) {
   );
 }
 
-function BriefSection({ status, news }: { status: BriefStatus; news: NewsItem[] }) {
+function BriefSection({
+  status,
+  news,
+  onRegenerate,
+}: {
+  status: BriefStatus;
+  news: NewsItem[];
+  onRegenerate: () => void;
+}) {
   return (
     <section>
       <h2>Brief</h2>
@@ -129,6 +134,9 @@ function BriefSection({ status, news }: { status: BriefStatus; news: NewsItem[] 
       )}
       {status.kind === 'ready' && (
         <>
+          {status.cachedAt && (
+            <p className="hint">From cache ({new Date(status.cachedAt).toLocaleString()})</p>
+          )}
           <p>{status.brief.overview}</p>
           <h3>Talking points</h3>
           <ol>
@@ -149,6 +157,11 @@ function BriefSection({ status, news }: { status: BriefStatus; news: NewsItem[] 
               </li>
             ))}
           </ol>
+          <p className="no-print">
+            <button className="link" onClick={onRegenerate}>
+              Regenerate
+            </button>
+          </p>
         </>
       )}
     </section>
@@ -159,6 +172,47 @@ export default function App() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [briefStatus, setBriefStatus] = useState<BriefStatus>({ kind: 'idle' });
   const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const generate = useCallback(
+    async (signals: PageSignals, detections: Detection[], news: NewsItem[]) => {
+      setBriefStatus({ kind: 'loading' });
+      const briefRes = (await chrome.runtime.sendMessage({
+        type: 'GENERATE_BRIEF',
+        signals,
+        detections,
+        news,
+      })) as BriefResponse;
+      if (briefRes.ok) setBriefStatus({ kind: 'ready', brief: briefRes.brief });
+      else setBriefStatus({ kind: 'error', message: briefRes.error });
+    },
+    [],
+  );
+
+  const regenerate = useCallback(async () => {
+    if (status.kind !== 'ready') return;
+    await chrome.runtime.sendMessage({ type: 'CLEAR_CACHE', url: status.signals.dom.url });
+    await generate(status.signals, status.detections, status.news);
+  }, [status, generate]);
+
+  const copyMarkdown = useCallback(async () => {
+    if (status.kind !== 'ready' || briefStatus.kind !== 'ready') return;
+    const company = companyQueryFor(
+      status.signals.dom.url,
+      status.signals.dom.title,
+      status.signals.dom.ogTags,
+    );
+    const md = briefToMarkdown(
+      company,
+      status.signals.dom.url,
+      briefStatus.brief,
+      status.detections,
+      status.news,
+    );
+    await navigator.clipboard.writeText(md);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [status, briefStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,17 +235,12 @@ export default function App() {
           news: res.news,
         });
 
-        // Stage 2: generate the brief (stack + news already visible).
-        setBriefStatus({ kind: 'loading' });
-        const briefRes = (await chrome.runtime.sendMessage({
-          type: 'GENERATE_BRIEF',
-          signals: res.signals,
-          detections: res.detections,
-          news: res.news,
-        })) as BriefResponse;
-        if (cancelled) return;
-        if (briefRes.ok) setBriefStatus({ kind: 'ready', brief: briefRes.brief });
-        else setBriefStatus({ kind: 'error', message: briefRes.error });
+        // Use the cached brief if fresh; otherwise generate.
+        if (res.cachedBrief) {
+          setBriefStatus({ kind: 'ready', brief: res.cachedBrief, cachedAt: res.cachedAt });
+        } else {
+          await generate(res.signals, res.detections, res.news);
+        }
       } catch (e) {
         if (!cancelled)
           setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -200,7 +249,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [generate]);
 
   return (
     <main>
@@ -219,13 +268,21 @@ export default function App() {
           <p>
             Brief for <code>{status.signals.dom.url}</code>
           </p>
-          <BriefSection status={briefStatus} news={status.news} />
+          {briefStatus.kind === 'ready' && (
+            <p className="toolbar no-print">
+              <button onClick={copyMarkdown}>{copied ? 'Copied ✓' : 'Copy as Markdown'}</button>{' '}
+              <button onClick={() => window.print()}>Print / Save as PDF</button>
+            </p>
+          )}
+          <BriefSection status={briefStatus} news={status.news} onRegenerate={regenerate} />
           <StackSection detections={status.detections} />
           <NewsSection news={status.news} />
-          <button onClick={() => setShowRaw((v) => !v)}>
-            {showRaw ? 'Hide' : 'Show'} raw signals
-          </button>
-          {showRaw && <pre>{JSON.stringify(status.signals, null, 2)}</pre>}
+          <p className="no-print">
+            <button className="link" onClick={() => setShowRaw((v) => !v)}>
+              {showRaw ? 'Hide' : 'Show'} raw signals
+            </button>
+          </p>
+          {showRaw && <pre className="no-print">{JSON.stringify(status.signals, null, 2)}</pre>}
         </>
       )}
     </main>

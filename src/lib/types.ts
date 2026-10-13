@@ -52,7 +52,8 @@ export type CollectRequest =
       signals: PageSignals;
       detections: Detection[];
       news: NewsItem[];
-    };
+    }
+  | { type: 'CLEAR_CACHE'; url: string };
 
 /** A detected technology with confidence and evidence. */
 export interface Detection {
@@ -73,9 +74,16 @@ export interface NewsItem {
   source: string | null;
 }
 
-/** Response carrying signals, detections, news, or an error. */
+/** Response carrying signals, detections, news, and possibly a cached brief. */
 export type CollectResponse =
-  | { ok: true; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
+  | {
+      ok: true;
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+      cachedBrief?: Brief;
+      cachedAt?: number;
+    }
   | { ok: false; error: string };
 
 /** Response carrying the generated brief, or an error. */
