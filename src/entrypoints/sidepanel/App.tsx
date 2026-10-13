@@ -266,7 +266,10 @@ export default function App() {
       {status.kind === 'ready' && (
         <>
           <p>
-            Brief for <code>{status.signals.dom.url}</code>
+            Brief for <code>{status.signals.dom.url}</code>{' '}
+            <button className="link no-print" onClick={() => window.location.reload()}>
+              Refresh
+            </button>
           </p>
           {briefStatus.kind === 'ready' && (
             <p className="toolbar no-print">

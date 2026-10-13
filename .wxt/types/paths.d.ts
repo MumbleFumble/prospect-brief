@@ -6,6 +6,10 @@ declare module "wxt/browser" {
     | ""
     | "/"
     | "/background.js"
+    | "/icons/icon-128.png"
+    | "/icons/icon-16.png"
+    | "/icons/icon-32.png"
+    | "/icons/icon-48.png"
     | "/options.html"
     | "/sidepanel.html"
   type HtmlPublicPath = Extract<PublicPath, `${string}.html`>

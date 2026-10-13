@@ -79,4 +79,4 @@ flowchart LR
 - [x] Step 4: news fetch + parse
 - [x] Step 5: options page + LLM brief generation
 - [x] Step 6: caching, regenerate, copy/export
-- [ ] Step 7: polish, error states, icon, store listing
+- [x] Step 7: polish, error states, icon, store listing
