@@ -4,20 +4,17 @@ import type { DomSignals, MainWorldSignals, PageSignals } from './types';
  * Signal collectors for step 2.
  *
  * Both functions are injected via chrome.scripting.executeScript, so they
- * must be self-contained (no imports, no closures over module scope).
- * They are defined here for readability and tested via extraction.
+ * must be FULLY SELF-CONTAINED: no imports, no references to module-level
+ * constants or helpers (only the function body is serialized). All
+ * constants and helpers are defined inside the function bodies.
  */
-
-const MAIN_WORLD_MESSAGE = 'PROSPECT_BRIEF_GLOBALS';
-const MAIN_WORLD_TIMEOUT_MS = 2000;
-/** Total visible-text budget across hero/nav/footer. */
-const TEXT_BUDGET = 2000;
 
 /**
  * Runs in the MAIN world. Checks for known window globals and posts
  * the results back; the isolated collector listens for the message.
  */
 export function collectMainWorldSignals(): void {
+  const MESSAGE = 'PROSPECT_BRIEF_GLOBALS';
   const w = window as unknown as Record<string, unknown>;
   const payload: MainWorldSignals = {
     reactDevtoolsHook: w['__REACT_DEVTOOLS_GLOBAL_HOOK__'] !== undefined,
@@ -31,14 +28,7 @@ export function collectMainWorldSignals(): void {
     hubspot: w['hubspot'] !== undefined || w['_hsq'] !== undefined,
     segment: w['analytics'] !== undefined,
   };
-  window.postMessage({ type: MAIN_WORLD_MESSAGE, payload }, '*');
-}
-
-/** Extract visible text from an element, collapsed to single spaces. */
-function textOf(el: Element | null, budget: number): string {
-  if (!el) return '';
-  const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
-  return raw.slice(0, budget);
+  window.postMessage({ type: MESSAGE, payload }, '*');
 }
 
 /**
@@ -46,10 +36,20 @@ function textOf(el: Element | null, budget: number): string {
  * for the main-world globals posted via postMessage.
  */
 export async function collectDomSignals(): Promise<PageSignals> {
+  const MESSAGE = 'PROSPECT_BRIEF_GLOBALS';
+  const TIMEOUT_MS = 2000;
+  const TEXT_BUDGET = 2000;
+
+  const textOf = (el: Element | null, budget: number): string => {
+    if (!el) return '';
+    const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    return raw.slice(0, budget);
+  };
+
   const mainWorld: Promise<MainWorldSignals | null> = new Promise((resolve) => {
     const handler = (e: MessageEvent) => {
       const d = e.data as { type?: string; payload?: MainWorldSignals };
-      if (d && d.type === MAIN_WORLD_MESSAGE) {
+      if (d && d.type === MESSAGE) {
         window.removeEventListener('message', handler);
         resolve(d.payload ?? null);
       }
@@ -58,24 +58,20 @@ export async function collectDomSignals(): Promise<PageSignals> {
     setTimeout(() => {
       window.removeEventListener('message', handler);
       resolve(null);
-    }, MAIN_WORLD_TIMEOUT_MS);
+    }, TIMEOUT_MS);
   });
 
   const meta = (name: string): string | null => {
-    const el = document.querySelector(
-      `meta[name="${name}"], meta[property="${name}"]`,
-    );
+    const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
     return el?.getAttribute('content') ?? null;
   };
 
   const ogTags: Record<string, string> = {};
-  document
-    .querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]')
-    .forEach((el) => {
-      const key = el.getAttribute('property') || el.getAttribute('name') || '';
-      const val = el.getAttribute('content') || '';
-      if (key && val) ogTags[key] = val;
-    });
+  document.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach((el) => {
+    const key = el.getAttribute('property') || el.getAttribute('name') || '';
+    const val = el.getAttribute('content') || '';
+    if (key && val) ogTags[key] = val;
+  });
 
   const scriptSrcs: string[] = [];
   document.querySelectorAll('script[src]').forEach((el) => {
@@ -100,7 +96,11 @@ export async function collectDomSignals(): Promise<PageSignals> {
   const nav = document.querySelector('nav');
   const footer = document.querySelector('footer');
   const perSection = Math.floor(TEXT_BUDGET / 3);
-  const visibleText = [textOf(hero, perSection), textOf(nav, perSection), textOf(footer, perSection)]
+  const visibleText = [
+    textOf(hero, perSection),
+    textOf(nav, perSection),
+    textOf(footer, perSection),
+  ]
     .filter(Boolean)
     .join('\n---\n');
 
