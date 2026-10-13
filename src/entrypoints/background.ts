@@ -44,11 +44,11 @@ function startHeaderCapture(): void {
  */
 async function collectSignals(tabId: number): Promise<CollectResponse> {
   const tab = await chrome.tabs.get(tabId);
-  if (!tab.url || RESTRICTED_RE.test(tab.url)) {
+  const url = tab.url ?? tab.pendingUrl ?? '';
+  if (!url || RESTRICTED_RE.test(url)) {
     return {
       ok: false,
-      error:
-        'Cannot collect signals from this page (browser-restricted URL). Try a regular website.',
+      error: `Cannot collect signals from this page (saw URL: "${url || '(empty)'}"). Try a regular website like stripe.com.`,
     };
   }
 
