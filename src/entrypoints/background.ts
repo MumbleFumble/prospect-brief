@@ -103,8 +103,12 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
 export default defineBackground(() => {
   startHeaderCapture();
 
-  // Open the side panel when the toolbar icon is clicked.
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  // Open the side panel on toolbar click. Using onClicked (instead of
+  // openPanelOnActionClick) so the click grants the activeTab permission,
+  // which chrome.scripting.executeScript needs for host access.
+  chrome.action.onClicked.addListener(async (tab) => {
+    if (tab.id) await chrome.sidePanel.open({ tabId: tab.id });
+  });
 
   chrome.runtime.onMessage.addListener((msg: CollectRequest, _sender, sendResponse) => {
     if (msg.type === 'COLLECT_SIGNALS') {
