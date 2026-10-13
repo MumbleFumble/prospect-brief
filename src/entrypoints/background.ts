@@ -100,19 +100,30 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
   }
 }
 
+/** Latest collection result per tab, populated during onClicked (activeTab valid). */
+const pendingByTab = new Map<number, Promise<CollectResponse>>();
+
 export default defineBackground(() => {
   startHeaderCapture();
 
-  // Open the side panel on toolbar click. Using onClicked (instead of
-  // openPanelOnActionClick) so the click grants the activeTab permission,
-  // which chrome.scripting.executeScript needs for host access.
-  chrome.action.onClicked.addListener(async (tab) => {
-    if (tab.id) await chrome.sidePanel.open({ tabId: tab.id });
+  // Collect signals DURING the click gesture (activeTab is granted here),
+  // then open the side panel. The panel picks up the result via COLLECT_SIGNALS.
+  chrome.action.onClicked.addListener((tab) => {
+    if (!tab.id) return;
+    pendingByTab.set(tab.id, collectSignals(tab.id));
+    chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
   });
 
   chrome.runtime.onMessage.addListener((msg: CollectRequest, _sender, sendResponse) => {
     if (msg.type === 'COLLECT_SIGNALS') {
-      collectSignals(msg.tabId).then(sendResponse);
+      const pending = pendingByTab.get(msg.tabId);
+      if (pending) {
+        pending.then(sendResponse);
+        pendingByTab.delete(msg.tabId);
+      } else {
+        // Fallback: try collecting directly (may fail without activeTab).
+        collectSignals(msg.tabId).then(sendResponse);
+      }
       return true;
     }
     if (msg.type === 'GENERATE_BRIEF') {
