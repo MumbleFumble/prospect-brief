@@ -58,7 +58,7 @@ See `public/icons/` (16/32/48/128 PNG).
 
 ## Permissions justification
 
-- `activeTab` + `scripting` — read the current page's title, meta tags, scripts, and text to build the brief. Only when you click the icon.
+- `activeTab` + `scripting` + `<all_urls>` — read the current page's title, meta tags, scripts, and text to build the brief. Only runs when you click the icon; no background access.
 - `tabs` — read the current tab's URL so the brief knows which site it's analyzing.
 - `sidePanel` — display the brief.
 - `storage` — save your API key, model choice, and cached briefs locally.
