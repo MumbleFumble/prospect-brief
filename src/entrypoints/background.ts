@@ -2,7 +2,15 @@ import { defineBackground } from 'wxt/utils/define-background';
 import { collectDomSignals, collectMainWorldSignals } from '../lib/collectors';
 import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
-import type { CollectRequest, CollectResponse, NewsItem, PageSignals } from '../lib/types';
+import { generateBrief } from '../lib/brief';
+import { getSettings } from '../lib/settings';
+import type {
+  BriefResponse,
+  CollectRequest,
+  CollectResponse,
+  NewsItem,
+  PageSignals,
+} from '../lib/types';
 
 const RESTRICTED_RE = /^(chrome|chrome-extension|edge|about|view-source):/;
 
@@ -88,8 +96,22 @@ export default defineBackground(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
   chrome.runtime.onMessage.addListener((msg: CollectRequest, _sender, sendResponse) => {
-    if (msg?.type !== 'COLLECT_SIGNALS') return false;
-    collectSignals(msg.tabId).then(sendResponse);
-    return true; // async response
+    if (msg.type === 'COLLECT_SIGNALS') {
+      collectSignals(msg.tabId).then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'GENERATE_BRIEF') {
+      (async (): Promise<BriefResponse> => {
+        try {
+          const { apiKey, model } = await getSettings();
+          const brief = await generateBrief(apiKey, model, msg.signals, msg.detections, msg.news);
+          return { ok: true, brief };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      })().then(sendResponse);
+      return true;
+    }
+    return false;
   });
 });

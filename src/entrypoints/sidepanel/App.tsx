@@ -1,10 +1,28 @@
 import { useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
-import type { CollectResponse, Detection, NewsItem, PageSignals } from '../../lib/types';
+import type { Brief } from '../../lib/brief';
+import type {
+  BriefResponse,
+  CollectResponse,
+  Detection,
+  NewsItem,
+  PageSignals,
+} from '../../lib/types';
 
 type Status =
   | { kind: 'loading' }
-  | { kind: 'ready'; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
+  | {
+      kind: 'ready';
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+    }
+  | { kind: 'error'; message: string };
+
+type BriefStatus =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; brief: Brief }
   | { kind: 'error'; message: string };
 
 async function getActiveTabId(): Promise<number> {
@@ -89,8 +107,57 @@ function NewsSection({ news }: { news: NewsItem[] }) {
   );
 }
 
+function BriefSection({ status, news }: { status: BriefStatus; news: NewsItem[] }) {
+  return (
+    <section>
+      <h2>Brief</h2>
+      {status.kind === 'idle' && <p>Preparing brief…</p>}
+      {status.kind === 'loading' && <p>Generating overview and talking points…</p>}
+      {status.kind === 'error' && (
+        <div role="alert">
+          <p>
+            <strong>Couldn&apos;t generate the brief.</strong>
+          </p>
+          <p>{status.message}</p>
+          {status.message.includes('API key') && (
+            <p>
+              <button onClick={() => chrome.runtime.openOptionsPage()}>Open options</button> to add
+              your Anthropic key.
+            </p>
+          )}
+        </div>
+      )}
+      {status.kind === 'ready' && (
+        <>
+          <p>{status.brief.overview}</p>
+          <h3>Talking points</h3>
+          <ol>
+            {status.brief.talkingPoints.map((t, i) => (
+              <li key={i}>
+                {t.point}
+                {t.sourceRefs.length > 0 && (
+                  <small>
+                    {' '}
+                    — sources:{' '}
+                    {t.sourceRefs.map((r) => (
+                      <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
+                        [{r + 1}]
+                      </a>
+                    ))}
+                  </small>
+                )}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
+  const [briefStatus, setBriefStatus] = useState<BriefStatus>({ kind: 'idle' });
   const [showRaw, setShowRaw] = useState(false);
 
   useEffect(() => {
@@ -103,14 +170,28 @@ export default function App() {
           tabId,
         })) as CollectResponse;
         if (cancelled) return;
-        if (res.ok)
-          setStatus({
-            kind: 'ready',
-            signals: res.signals,
-            detections: res.detections,
-            news: res.news,
-          });
-        else setStatus({ kind: 'error', message: res.error });
+        if (!res.ok) {
+          setStatus({ kind: 'error', message: res.error });
+          return;
+        }
+        setStatus({
+          kind: 'ready',
+          signals: res.signals,
+          detections: res.detections,
+          news: res.news,
+        });
+
+        // Stage 2: generate the brief (stack + news already visible).
+        setBriefStatus({ kind: 'loading' });
+        const briefRes = (await chrome.runtime.sendMessage({
+          type: 'GENERATE_BRIEF',
+          signals: res.signals,
+          detections: res.detections,
+          news: res.news,
+        })) as BriefResponse;
+        if (cancelled) return;
+        if (briefRes.ok) setBriefStatus({ kind: 'ready', brief: briefRes.brief });
+        else setBriefStatus({ kind: 'error', message: briefRes.error });
       } catch (e) {
         if (!cancelled)
           setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -138,15 +219,13 @@ export default function App() {
           <p>
             Brief for <code>{status.signals.dom.url}</code>
           </p>
+          <BriefSection status={briefStatus} news={status.news} />
           <StackSection detections={status.detections} />
           <NewsSection news={status.news} />
           <button onClick={() => setShowRaw((v) => !v)}>
             {showRaw ? 'Hide' : 'Show'} raw signals
           </button>
           {showRaw && <pre>{JSON.stringify(status.signals, null, 2)}</pre>}
-          <p>
-            <em>Overview and talking points land in step 5.</em>
-          </p>
         </>
       )}
     </main>

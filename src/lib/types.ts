@@ -45,10 +45,14 @@ export interface PageSignals {
 }
 
 /** Message from side panel to background requesting collection. */
-export interface CollectRequest {
-  type: 'COLLECT_SIGNALS';
-  tabId: number;
-}
+export type CollectRequest =
+  | { type: 'COLLECT_SIGNALS'; tabId: number }
+  | {
+      type: 'GENERATE_BRIEF';
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+    };
 
 /** A detected technology with confidence and evidence. */
 export interface Detection {
@@ -58,6 +62,8 @@ export interface Detection {
   /** Human-readable evidence, e.g. 'script src matches /cdn.shopify.com/'. */
   evidence: string[];
 }
+
+import type { Brief } from './brief';
 
 /** A news headline about the company. */
 export interface NewsItem {
@@ -71,3 +77,6 @@ export interface NewsItem {
 export type CollectResponse =
   | { ok: true; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
   | { ok: false; error: string };
+
+/** Response carrying the generated brief, or an error. */
+export type BriefResponse = { ok: true; brief: Brief } | { ok: false; error: string };

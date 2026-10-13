@@ -2,7 +2,7 @@
   "dependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "zod": "^4.1.0"
+    "zod": "^4.6.7"
   },
   "description": "Chrome extension that generates a one-page account brief for any company website.",
   "devDependencies": {

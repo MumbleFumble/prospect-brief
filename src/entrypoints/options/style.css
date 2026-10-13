@@ -1,0 +1,43 @@
+main {
+  max-width: 480px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  font-family: system-ui, sans-serif;
+}
+
+h1 {
+  font-size: 1.25rem;
+}
+
+label {
+  display: block;
+  margin: 1rem 0 0.25rem;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0.25rem 0 0;
+}
+
+button {
+  margin-top: 1rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.saved {
+  margin-left: 0.75rem;
+  color: #155724;
+}

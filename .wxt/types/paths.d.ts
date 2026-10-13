@@ -2,7 +2,7 @@
 import 'wxt/browser';
 
 declare module 'wxt/browser' {
-  export type PublicPath = '' | '/' | '/background.js' | '/sidepanel.html';
+  export type PublicPath = '' | '/' | '/background.js' | '/options.html' | '/sidepanel.html';
   type HtmlPublicPath = Extract<PublicPath, `${string}.html`>;
   export interface WxtRuntime {
     getURL(path: PublicPath): string;
