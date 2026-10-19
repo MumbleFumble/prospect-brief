@@ -13,7 +13,7 @@ import type {
   PageSignals,
 } from '../lib/types';
 
-const RESTRICTED_RE = /^(chrome|chrome-extension|edge|about|view-source):/;
+import { RESTRICTED_RE, BLOCKED_HOSTS_RE, friendlyCollectError } from '../lib/errors';
 
 /** Latest main-frame response headers per tab, captured via webRequest. */
 const headersByTab = new Map<number, Record<string, string>>();
@@ -45,10 +45,16 @@ function startHeaderCapture(): void {
 async function collectSignals(tabId: number): Promise<CollectResponse> {
   const tab = await chrome.tabs.get(tabId);
   const url = tab.url ?? tab.pendingUrl ?? '';
-  if (!url || RESTRICTED_RE.test(url)) {
+  let hostname = '';
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    /* ignore */
+  }
+  if (!url || RESTRICTED_RE.test(url) || BLOCKED_HOSTS_RE.test(hostname)) {
     return {
       ok: false,
-      error: `Cannot collect signals from this page (saw URL: "${url || '(empty)'}"). Try a regular website like stripe.com.`,
+      error: friendlyCollectError('blocked', url),
     };
   }
 
@@ -96,7 +102,8 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
       ...(cached ? { cachedBrief: cached.brief, cachedAt: cached.cachedAt } : {}),
     };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const raw = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: friendlyCollectError(raw, url) };
   }
 }
 
