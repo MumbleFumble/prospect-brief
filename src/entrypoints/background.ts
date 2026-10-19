@@ -136,8 +136,15 @@ export default defineBackground(() => {
     if (msg.type === 'GENERATE_BRIEF') {
       (async (): Promise<BriefResponse> => {
         try {
-          const { apiKey, model } = await getSettings();
-          const brief = await generateBrief(apiKey, model, msg.signals, msg.detections, msg.news);
+          const { apiKey, model, sellerProfile } = await getSettings();
+          const brief = await generateBrief(
+            apiKey,
+            model,
+            msg.signals,
+            msg.detections,
+            msg.news,
+            sellerProfile,
+          );
           // Cache the completed brief per domain (best-effort).
           const domain = domainFor(msg.signals.dom.url);
           await setCachedBrief({

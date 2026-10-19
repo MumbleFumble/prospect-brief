@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BriefSchema } from './brief';
+import { BriefSchema, buildPrompt } from './brief';
+import type { SellerProfile } from './settings';
 
 describe('BriefSchema', () => {
   it('accepts a valid brief', () => {
@@ -28,5 +29,42 @@ describe('BriefSchema', () => {
     expect(() =>
       BriefSchema.parse({ overview: 'x', talkingPoints: [{ point: 'x', sourceRefs: [1.5] }] }),
     ).toThrow();
+  });
+});
+
+describe('buildPrompt seller context', () => {
+  const baseSignals = {
+    dom: {
+      url: 'https://example.com/',
+      title: 'Example',
+      metaDescription: null,
+      visibleText: 'We sell widgets.',
+      ogTags: {},
+    },
+  };
+
+  it('includes seller context when profile is set', () => {
+    const seller = {
+      whatYouSell: 'Checkout optimization',
+      idealCustomer: 'DTC brands',
+      valueProps: ['Lift conversion 12%', 'Reduce cart abandonment'],
+    };
+    const prompt = buildPrompt(baseSignals as any, [], [], seller);
+    expect(prompt).toContain('SELLER CONTEXT');
+    expect(prompt).toContain('Checkout optimization');
+    expect(prompt).toContain('Lift conversion 12%');
+    expect(prompt).toContain("seller's value props");
+  });
+
+  it('omits seller context when profile is empty', () => {
+    const seller = { whatYouSell: '', idealCustomer: '', valueProps: [] };
+    const prompt = buildPrompt(baseSignals as any, [], [], seller);
+    expect(prompt).not.toContain('SELLER CONTEXT');
+    expect(prompt).toContain('sourceRefs');
+  });
+
+  it('omits seller context when null', () => {
+    const prompt = buildPrompt(baseSignals as any, [], [], null);
+    expect(prompt).not.toContain('SELLER CONTEXT');
   });
 });

@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_MODEL, getSettings, saveSettings } from '../../lib/settings';
+import { DEFAULT_MODEL, getSettings, saveSettings, type SellerProfile } from '../../lib/settings';
 
 export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(DEFAULT_MODEL);
+  const [whatYouSell, setWhatYouSell] = useState('');
+  const [idealCustomer, setIdealCustomer] = useState('');
+  const [valueProps, setValueProps] = useState<string[]>(['', '', '']);
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -11,13 +14,31 @@ export default function App() {
     getSettings().then((s) => {
       setApiKey(s.apiKey);
       setModel(s.model);
+      setWhatYouSell(s.sellerProfile.whatYouSell);
+      setIdealCustomer(s.sellerProfile.idealCustomer);
+      const vp = [...s.sellerProfile.valueProps];
+      while (vp.length < 3) vp.push('');
+      setValueProps(vp.slice(0, 3));
       setLoaded(true);
     });
   }, []);
 
+  function setValueProp(i: number, v: string) {
+    setValueProps((prev) => prev.map((p, j) => (j === i ? v : p)));
+  }
+
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
-    await saveSettings({ apiKey: apiKey.trim(), model: model.trim() || DEFAULT_MODEL });
+    const profile: SellerProfile = {
+      whatYouSell: whatYouSell.trim(),
+      idealCustomer: idealCustomer.trim(),
+      valueProps: valueProps.map((v) => v.trim()).filter(Boolean),
+    };
+    await saveSettings({
+      apiKey: apiKey.trim(),
+      model: model.trim() || DEFAULT_MODEL,
+      sellerProfile: profile,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -58,6 +79,61 @@ export default function App() {
           />
         </label>
         <p className="hint">Default: {DEFAULT_MODEL}</p>
+
+        <h2>Your seller profile</h2>
+        <p className="hint">
+          Optional. When set, talking points connect your product to each prospect&apos;s situation
+          instead of staying generic.
+        </p>
+        <label>
+          What you sell
+          <input
+            type="text"
+            value={whatYouSell}
+            onChange={(e) => setWhatYouSell(e.target.value)}
+            placeholder="e.g. Checkout optimization for Shopify Plus stores"
+            spellCheck={true}
+          />
+        </label>
+        <label>
+          Ideal customer
+          <input
+            type="text"
+            value={idealCustomer}
+            onChange={(e) => setIdealCustomer(e.target.value)}
+            placeholder="e.g. Mid-market DTC brands doing $10M+ online"
+            spellCheck={true}
+          />
+        </label>
+        <label>
+          Value prop 1
+          <input
+            type="text"
+            value={valueProps[0] ?? ''}
+            onChange={(e) => setValueProp(0, e.target.value)}
+            placeholder="e.g. Lift checkout conversion by 12%"
+            spellCheck={true}
+          />
+        </label>
+        <label>
+          Value prop 2
+          <input
+            type="text"
+            value={valueProps[1] ?? ''}
+            onChange={(e) => setValueProp(1, e.target.value)}
+            spellCheck={true}
+          />
+        </label>
+        <label>
+          Value prop 3
+          <input
+            type="text"
+            value={valueProps[2] ?? ''}
+            onChange={(e) => setValueProp(2, e.target.value)}
+            spellCheck={true}
+          />
+        </label>
+
         <button type="submit">Save</button>
         {saved && <span className="saved">Saved ✓</span>}
       </form>
