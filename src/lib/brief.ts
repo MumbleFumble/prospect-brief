@@ -11,10 +11,22 @@ export const TalkingPointSchema = z.object({
   point: z.string().min(1),
   /** Indexes into the news array passed to the prompt. */
   sourceRefs: z.array(z.number().int().nonnegative()),
+  /** Indexes into the detections array. Grounds stack-based points. */
+  stackRefs: z.array(z.number().int().nonnegative()).default([]),
+  /**
+   * Grounding basis for this point:
+   * - 'news': drawn from a cited headline (sourceRefs)
+   * - 'stack': drawn from a detected technology (stackRefs)
+   * - 'site': drawn from the company's own website text
+   * - 'inference': the model's inference, not directly grounded
+   */
+  basis: z.enum(['news', 'stack', 'site', 'inference']).default('news'),
 });
 
 export const BriefSchema = z.object({
   overview: z.string().min(1),
+  /** News indexes cited by the overview. */
+  overviewRefs: z.array(z.number().int().nonnegative()).default([]),
   talkingPoints: z.array(TalkingPointSchema).min(1).max(8),
 });
 
@@ -31,7 +43,10 @@ export function buildPrompt(
   seller: SellerProfile | null,
 ): string {
   const stack = detections
-    .map((d) => `- ${d.name} (${d.category}, ${d.confidence} confidence): ${d.evidence.join('; ')}`)
+    .map(
+      (d, i) =>
+        `[S${i}] ${d.name} (${d.category}, ${d.confidence} confidence): ${d.evidence.join('; ')}`,
+    )
     .join('\n');
 
   const headlines = news
@@ -73,6 +88,9 @@ ${headlines || '(none found)'}
 
 ${sellerSection}RULES
 - Only state facts supported by the website text, tech stack, or headlines above. Do NOT invent funding rounds, employee counts, revenue, or partnerships.
+- GROUNDING: For each talking point, set "basis" to where the claim comes from: "news" (a headline - include its index in sourceRefs), "stack" (a detected technology - include its [S#] index in stackRefs), "site" (the company's own website text), or "inference" (your own reasoning, not directly grounded). Never claim a basis you cannot support.
+- If a signal is absent (no news, no relevant tech), leave the point out rather than inventing one. Prefer "not found" over guessing.
+- The overview may only cite headlines that actually support it; put their indexes in overviewRefs (empty if none apply).
 - If the headlines don't support a claim, don't make it.
 ${talkingPointRule}
 - Keep the overview to 3-4 sentences. Keep each talking point to 1-2 sentences.
@@ -80,7 +98,11 @@ ${talkingPointRule}
 Respond with ONLY a JSON object matching this shape:
 {
   "overview": "string",
-  "talkingPoints": [{ "point": "string", "sourceRefs": [0, 2] }]
+  "overviewRefs": [0],
+  "talkingPoints": [
+    { "point": "string", "sourceRefs": [0, 2], "stackRefs": [], "basis": "news" },
+    { "point": "string", "sourceRefs": [], "stackRefs": [0], "basis": "stack" }
+  ]
 }`;
 }
 

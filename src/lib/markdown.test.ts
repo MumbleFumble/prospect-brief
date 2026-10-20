@@ -4,9 +4,10 @@ import type { Brief } from './brief';
 
 const BRIEF: Brief = {
   overview: 'Acme builds payments infrastructure.',
+  overviewRefs: [0],
   talkingPoints: [
-    { point: 'They raised $100M.', sourceRefs: [0] },
-    { point: 'New product launched.', sourceRefs: [] },
+    { point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' },
+    { point: 'New product launched.', sourceRefs: [], stackRefs: [], basis: 'site' },
   ],
 };
 

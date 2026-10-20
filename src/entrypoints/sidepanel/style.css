@@ -114,3 +114,8 @@ button.link {
     color: #666;
   }
 }
+
+.basis-tag {
+  color: #888;
+  font-style: italic;
+}

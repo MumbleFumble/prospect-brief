@@ -74,3 +74,27 @@ describe('buildPrompt seller context', () => {
     expect(prompt).not.toContain('SELLER CONTEXT');
   });
 });
+
+describe('grounding fields', () => {
+  it('defaults basis/stackRefs/overviewRefs for older briefs', () => {
+    const parsed = BriefSchema.parse({
+      overview: 'Acme does things.',
+      talkingPoints: [{ point: 'They raised money.', sourceRefs: [0] }],
+    });
+    expect(parsed.talkingPoints[0].basis).toBe('news');
+    expect(parsed.talkingPoints[0].stackRefs).toEqual([]);
+    expect(parsed.overviewRefs).toEqual([]);
+  });
+
+  it('accepts stack basis with stackRefs', () => {
+    const parsed = BriefSchema.parse({
+      overview: 'Acme does things.',
+      overviewRefs: [],
+      talkingPoints: [
+        { point: 'They run Segment.', sourceRefs: [], stackRefs: [0], basis: 'stack' },
+      ],
+    });
+    expect(parsed.talkingPoints[0].basis).toBe('stack');
+    expect(parsed.talkingPoints[0].stackRefs).toEqual([0]);
+  });
+});

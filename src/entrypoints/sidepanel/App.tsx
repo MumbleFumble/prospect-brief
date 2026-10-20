@@ -107,10 +107,12 @@ function NewsSection({ news }: { news: NewsItem[] }) {
 function BriefSection({
   status,
   news,
+  detections,
   onRegenerate,
 }: {
   status: BriefStatus;
   news: NewsItem[];
+  detections: Detection[];
   onRegenerate: () => void;
 }) {
   return (
@@ -138,11 +140,24 @@ function BriefSection({
             <p className="hint">From cache ({new Date(status.cachedAt).toLocaleString()})</p>
           )}
           <p>{status.brief.overview}</p>
+          {status.brief.overviewRefs?.length > 0 && (
+            <p>
+              <small>
+                Overview sources:{' '}
+                {status.brief.overviewRefs.map((r) => (
+                  <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
+                    [{r + 1}]{' '}
+                  </a>
+                ))}
+              </small>
+            </p>
+          )}
           <h3>Talking points</h3>
           <ol>
             {status.brief.talkingPoints.map((t, i) => (
               <li key={i}>
                 {t.point}
+                {t.basis && t.basis !== 'news' && <small className="basis-tag"> ({t.basis})</small>}
                 {t.sourceRefs.length > 0 && (
                   <small>
                     {' '}
@@ -151,6 +166,15 @@ function BriefSection({
                       <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
                         [{r + 1}]
                       </a>
+                    ))}
+                  </small>
+                )}
+                {(t.stackRefs ?? []).length > 0 && (
+                  <small>
+                    {' '}
+                    — tech:{' '}
+                    {(t.stackRefs ?? []).map((r) => (
+                      <span key={r}>[{detections[r]?.name ?? `S${r + 1}`}] </span>
                     ))}
                   </small>
                 )}
@@ -277,7 +301,12 @@ export default function App() {
               <button onClick={() => window.print()}>Print / Save as PDF</button>
             </p>
           )}
-          <BriefSection status={briefStatus} news={status.news} onRegenerate={regenerate} />
+          <BriefSection
+            status={briefStatus}
+            news={status.news}
+            detections={status.detections}
+            onRegenerate={regenerate}
+          />
           <StackSection detections={status.detections} />
           <NewsSection news={status.news} />
           <p className="no-print">

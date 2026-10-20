@@ -21,15 +21,19 @@ export function briefToMarkdown(
   lines.push('## Talking Points', '');
   brief.talkingPoints.forEach((t, i) => {
     const refs = t.sourceRefs.map((r) => `[${r + 1}]`).join('');
-    lines.push(`${i + 1}. ${t.point}${refs ? ` ${refs}` : ''}`);
+    const srefs = (t.stackRefs ?? []).map((r) => `[S${r + 1}]`).join('');
+    const basis = t.basis && t.basis !== 'news' ? ` _(${t.basis})_` : '';
+    const allRefs = [refs, srefs].filter(Boolean).join(' ');
+    lines.push(`${i + 1}. ${t.point}${allRefs ? ` ${allRefs}` : ''}${basis}`);
   });
   lines.push('');
 
   if (detections.length > 0) {
     lines.push('## Likely Tech Stack', '');
-    for (const d of detections) {
-      lines.push(`- **${d.name}** (${d.category}, ${d.confidence} confidence)`);
-    }
+    detections.forEach((d, i) => {
+      lines.push(`- [S${i + 1}] **${d.name}** (${d.category}, ${d.confidence} confidence)`);
+      for (const e of d.evidence) lines.push(`  - \`${e}\``);
+    });
     lines.push('');
   }
 
