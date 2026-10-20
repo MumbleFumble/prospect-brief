@@ -4,10 +4,12 @@ import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { fetchHiringSignals } from '../lib/hiring';
 import { generateBrief } from '../lib/brief';
+import { generateOutreach } from '../lib/outreach';
 import { getSettings } from '../lib/settings';
 import { domainFor, getCachedBrief, setCachedBrief, clearCachedBrief } from '../lib/cache';
 import type {
   BriefResponse,
+  OutreachResponse,
   CollectRequest,
   CollectResponse,
   NewsItem,
@@ -165,6 +167,27 @@ export default defineBackground(() => {
             hiring: msg.hiring,
           }).catch((e) => console.warn('Cache write failed:', e));
           return { ok: true, brief };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      })().then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'GENERATE_OUTREACH') {
+      (async (): Promise<OutreachResponse> => {
+        try {
+          const { apiKey, model, sellerProfile } = await getSettings();
+          const draft = await generateOutreach(
+            apiKey,
+            model,
+            msg.company,
+            msg.brief,
+            msg.detections,
+            msg.news,
+            msg.hiring,
+            sellerProfile,
+          );
+          return { ok: true, draft };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }

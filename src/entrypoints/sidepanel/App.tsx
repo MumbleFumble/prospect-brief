@@ -8,8 +8,10 @@ import type {
   CollectResponse,
   Detection,
   NewsItem,
+  OutreachResponse,
   PageSignals,
 } from '../../lib/types';
+import type { OutreachDraft } from '../../lib/outreach';
 import type { HiringSignals } from '../../lib/hiring';
 
 type Status =
@@ -146,6 +148,97 @@ function WhyNowSection({ hiring, news }: { hiring: HiringSignals | null; news: N
           Latest headline: <em>{news[0].title}</em>
           {news[0].pubDate ? ` (${news[0].pubDate.slice(0, 10)})` : ''}
         </p>
+      )}
+    </section>
+  );
+}
+
+type OutreachStatus =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; draft: OutreachDraft }
+  | { kind: 'error'; message: string };
+
+function OutreachSection({
+  company,
+  brief,
+  detections,
+  news,
+  hiring,
+}: {
+  company: string;
+  brief: Brief;
+  detections: Detection[];
+  news: NewsItem[];
+  hiring: HiringSignals | null;
+}) {
+  const [state, setState] = useState<OutreachStatus>({ kind: 'idle' });
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function draft() {
+    setState({ kind: 'loading' });
+    const res = (await chrome.runtime.sendMessage({
+      type: 'GENERATE_OUTREACH',
+      company,
+      brief,
+      detections,
+      news,
+      hiring,
+    })) as OutreachResponse;
+    if (res.ok) setState({ kind: 'ready', draft: res.draft });
+    else setState({ kind: 'error', message: res.error });
+  }
+
+  async function copy(label: string, text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  return (
+    <section className="no-print">
+      <h2>Outreach draft</h2>
+      {state.kind === 'idle' && <button onClick={draft}>Draft outreach</button>}
+      {state.kind === 'loading' && <p>Drafting outreach...</p>}
+      {state.kind === 'error' && (
+        <p role="alert">
+          Couldn&apos;t draft outreach. {state.message}{' '}
+          <button className="link" onClick={draft}>
+            Retry
+          </button>
+        </p>
+      )}
+      {state.kind === 'ready' && (
+        <>
+          <p>
+            <small>Leads with: {state.draft.signal}</small>
+          </p>
+          <h3>Email</h3>
+          <p>
+            <strong>{state.draft.emailSubject}</strong>
+          </p>
+          <p>{state.draft.emailBody}</p>
+          <p>
+            <button
+              className="link"
+              onClick={() =>
+                copy('email', `Subject: ${state.draft.emailSubject}\n\n${state.draft.emailBody}`)
+              }
+            >
+              {copied === 'email' ? 'Copied' : 'Copy email'}
+            </button>
+          </p>
+          <h3>LinkedIn note</h3>
+          <p>{state.draft.linkedInNote}</p>
+          <p>
+            <button className="link" onClick={() => copy('linkedin', state.draft.linkedInNote)}>
+              {copied === 'linkedin' ? 'Copied' : 'Copy LinkedIn note'}
+            </button>{' '}
+            <button className="link" onClick={draft}>
+              Redraft
+            </button>
+          </p>
+        </>
       )}
     </section>
   );
@@ -361,6 +454,19 @@ export default function App() {
             detections={status.detections}
             onRegenerate={regenerate}
           />
+          {briefStatus.kind === 'ready' && (
+            <OutreachSection
+              company={companyQueryFor(
+                status.signals.dom.url,
+                status.signals.dom.title,
+                status.signals.dom.ogTags,
+              )}
+              brief={briefStatus.brief}
+              detections={status.detections}
+              news={status.news}
+              hiring={status.hiring}
+            />
+          )}
           <StackSection detections={status.detections} />
           <WhyNowSection hiring={status.hiring} news={status.news} />
           <NewsSection news={status.news} />

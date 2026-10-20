@@ -54,6 +54,14 @@ export type CollectRequest =
       news: NewsItem[];
       hiring: HiringSignals | null;
     }
+  | {
+      type: 'GENERATE_OUTREACH';
+      company: string;
+      brief: Brief;
+      detections: Detection[];
+      news: NewsItem[];
+      hiring: HiringSignals | null;
+    }
   | { type: 'CLEAR_CACHE'; url: string };
 
 /** A detected technology with confidence and evidence. */
@@ -67,6 +75,7 @@ export interface Detection {
 
 import type { Brief } from './brief';
 import type { HiringSignals } from './hiring';
+import type { OutreachDraft } from './outreach';
 
 /** A news headline about the company. */
 export interface NewsItem {
@@ -91,3 +100,6 @@ export type CollectResponse =
 
 /** Response carrying the generated brief, or an error. */
 export type BriefResponse = { ok: true; brief: Brief } | { ok: false; error: string };
+
+/** Response carrying a generated outreach draft, or an error. */
+export type OutreachResponse = { ok: true; draft: OutreachDraft } | { ok: false; error: string };
