@@ -13,6 +13,13 @@ import type {
 } from '../../lib/types';
 import type { OutreachDraft } from '../../lib/outreach';
 import type { HiringSignals } from '../../lib/hiring';
+import {
+  listSavedBriefs,
+  deleteSavedBrief,
+  clearSavedBriefs,
+  type SavedBrief,
+} from '../../lib/saved';
+import { briefToCrmNote, savedBriefsToCsv } from '../../lib/export';
 
 type Status =
   | { kind: 'loading' }
@@ -332,7 +339,95 @@ function BriefSection({
   );
 }
 
+function SavedView({ onBack }: { onBack: () => void }) {
+  const [list, setList] = useState<SavedBrief[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setList(await listSavedBriefs());
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  async function copyNote(entry: SavedBrief) {
+    await navigator.clipboard.writeText(briefToCrmNote(entry));
+    setCopiedId(entry.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  function exportCsv() {
+    const csv = savedBriefsToCsv(list);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'prospect-briefs.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <main>
+      <h1>Saved briefs</h1>
+      <p className="no-print">
+        <button className="link" onClick={onBack}>
+          Back to current page
+        </button>
+      </p>
+      {list.length === 0 && <p>No saved briefs yet. Briefs are saved automatically.</p>}
+      {list.length > 0 && (
+        <>
+          <p className="no-print">
+            <button onClick={exportCsv}>Export CSV</button>{' '}
+            <button
+              className="link"
+              onClick={async () => {
+                await clearSavedBriefs();
+                await reload();
+              }}
+            >
+              Clear all
+            </button>
+          </p>
+          {list.map((entry) => (
+            <section key={entry.id}>
+              <h2>{entry.company}</h2>
+              <p>
+                <small>
+                  {new Date(entry.savedAt).toLocaleDateString()} -{' '}
+                  <a href={entry.url} target="_blank" rel="noreferrer">
+                    {entry.domain}
+                  </a>
+                  {entry.hiring ? ` - ${entry.hiring.totalRoles} open roles` : ''}
+                </small>
+              </p>
+              <p>{entry.brief.overview}</p>
+              <p className="no-print">
+                <button className="link" onClick={() => copyNote(entry)}>
+                  {copiedId === entry.id ? 'Copied' : 'Copy as CRM note'}
+                </button>{' '}
+                <button
+                  className="link"
+                  onClick={async () => {
+                    await deleteSavedBrief(entry.id);
+                    await reload();
+                  }}
+                >
+                  Delete
+                </button>
+              </p>
+            </section>
+          ))}
+        </>
+      )}
+    </main>
+  );
+}
+
 export default function App() {
+  const [view, setView] = useState<'current' | 'saved'>('current');
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [briefStatus, setBriefStatus] = useState<BriefStatus>({ kind: 'idle' });
   const [showRaw, setShowRaw] = useState(false);
@@ -422,9 +517,16 @@ export default function App() {
     };
   }, [generate]);
 
+  if (view === 'saved') return <SavedView onBack={() => setView('current')} />;
+
   return (
     <main>
       <h1>Prospect Brief</h1>
+      <p className="no-print">
+        <button className="link" onClick={() => setView('saved')}>
+          Saved briefs
+        </button>
+      </p>
       {status.kind === 'loading' && <p>Collecting page signals…</p>}
       {status.kind === 'error' && (
         <div role="alert">

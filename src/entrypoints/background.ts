@@ -3,6 +3,7 @@ import { collectDomSignals, collectMainWorldSignals } from '../lib/collectors';
 import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { fetchHiringSignals } from '../lib/hiring';
+import { saveBrief } from '../lib/saved';
 import { generateBrief } from '../lib/brief';
 import { generateOutreach } from '../lib/outreach';
 import { getSettings } from '../lib/settings';
@@ -166,6 +167,20 @@ export default defineBackground(() => {
             news: msg.news,
             hiring: msg.hiring,
           }).catch((e) => console.warn('Cache write failed:', e));
+          // Also persist to saved history (best-effort, never expires).
+          await saveBrief({
+            company: companyQueryFor(
+              msg.signals.dom.url,
+              msg.signals.dom.title,
+              msg.signals.dom.ogTags,
+            ),
+            domain,
+            url: msg.signals.dom.url,
+            brief,
+            detections: msg.detections,
+            news: msg.news,
+            hiring: msg.hiring,
+          }).catch((e) => console.warn('Save failed:', e));
           return { ok: true, brief };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
