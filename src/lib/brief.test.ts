@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BriefSchema, buildPrompt } from './brief';
-import type { SellerProfile } from './settings';
+import type { PageSignals } from './types';
 
 describe('BriefSchema', () => {
   it('accepts a valid brief', () => {
@@ -33,14 +33,20 @@ describe('BriefSchema', () => {
 });
 
 describe('buildPrompt seller context', () => {
-  const baseSignals = {
+  const baseSignals: PageSignals = {
     dom: {
       url: 'https://example.com/',
       title: 'Example',
       metaDescription: null,
+      generator: null,
       visibleText: 'We sell widgets.',
       ogTags: {},
+      scriptSrcs: [],
+      linkHrefs: [],
+      cookieNames: [],
     },
+    mainWorld: null,
+    collectedAt: 0,
   };
 
   it('includes seller context when profile is set', () => {
@@ -49,7 +55,7 @@ describe('buildPrompt seller context', () => {
       idealCustomer: 'DTC brands',
       valueProps: ['Lift conversion 12%', 'Reduce cart abandonment'],
     };
-    const prompt = buildPrompt(baseSignals as any, [], [], seller);
+    const prompt = buildPrompt(baseSignals, [], [], seller);
     expect(prompt).toContain('SELLER CONTEXT');
     expect(prompt).toContain('Checkout optimization');
     expect(prompt).toContain('Lift conversion 12%');
@@ -58,13 +64,13 @@ describe('buildPrompt seller context', () => {
 
   it('omits seller context when profile is empty', () => {
     const seller = { whatYouSell: '', idealCustomer: '', valueProps: [] };
-    const prompt = buildPrompt(baseSignals as any, [], [], seller);
+    const prompt = buildPrompt(baseSignals, [], [], seller);
     expect(prompt).not.toContain('SELLER CONTEXT');
     expect(prompt).toContain('sourceRefs');
   });
 
   it('omits seller context when null', () => {
-    const prompt = buildPrompt(baseSignals as any, [], [], null);
+    const prompt = buildPrompt(baseSignals, [], [], null);
     expect(prompt).not.toContain('SELLER CONTEXT');
   });
 });
