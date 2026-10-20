@@ -53,7 +53,7 @@ describe('buildPrompt seller context', () => {
     const seller = {
       whatYouSell: 'Checkout optimization',
       idealCustomer: 'DTC brands',
-      valueProps: ['Lift conversion 12%', 'Reduce cart abandonment'],
+      valueProps: ['Lift conversion 12%', 'Reduce cart abandonment'], competitors: [],
     };
     const prompt = buildPrompt(baseSignals, [], [], seller);
     expect(prompt).toContain('SELLER CONTEXT');
@@ -63,7 +63,7 @@ describe('buildPrompt seller context', () => {
   });
 
   it('omits seller context when profile is empty', () => {
-    const seller = { whatYouSell: '', idealCustomer: '', valueProps: [] };
+    const seller = { whatYouSell: '', idealCustomer: '', valueProps: [], competitors: [] };
     const prompt = buildPrompt(baseSignals, [], [], seller);
     expect(prompt).not.toContain('SELLER CONTEXT');
     expect(prompt).toContain('sourceRefs');

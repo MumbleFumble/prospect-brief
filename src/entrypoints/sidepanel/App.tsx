@@ -13,6 +13,8 @@ import type {
 } from '../../lib/types';
 import type { OutreachDraft } from '../../lib/outreach';
 import type { HiringSignals } from '../../lib/hiring';
+import { getSettings } from '../../lib/settings';
+import { findCompetitors, type CompetitorMatch } from '../../lib/competitors';
 import {
   listSavedBriefs,
   deleteSavedBrief,
@@ -116,6 +118,26 @@ function NewsSection({ news }: { news: NewsItem[] }) {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+function CompetitorBanner({ detections }: { detections: Detection[] }) {
+  const [matches, setMatches] = useState<CompetitorMatch[]>([]);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => setMatches(findCompetitors(detections, s.sellerProfile.competitors)))
+      .catch(() => setMatches([]));
+  }, [detections]);
+
+  if (matches.length === 0) return null;
+  return (
+    <section className="competitor-banner" role="alert">
+      <p>
+        <strong>Competitor in use:</strong> {matches.map((m) => m.detection.name).join(', ')}. This
+        account is a displacement opportunity, not a greenfield pitch.
+      </p>
     </section>
   );
 }
@@ -428,6 +450,7 @@ function SavedView({ onBack }: { onBack: () => void }) {
 
 export default function App() {
   const [view, setView] = useState<'current' | 'saved'>('current');
+  const [tab, setTab] = useState<'brief' | 'signals' | 'outreach'>('brief');
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [briefStatus, setBriefStatus] = useState<BriefStatus>({ kind: 'idle' });
   const [showRaw, setShowRaw] = useState(false);
@@ -550,34 +573,70 @@ export default function App() {
               <button onClick={() => window.print()}>Print / Save as PDF</button>
             </p>
           )}
-          <BriefSection
-            status={briefStatus}
-            news={status.news}
-            detections={status.detections}
-            onRegenerate={regenerate}
-          />
-          {briefStatus.kind === 'ready' && (
-            <OutreachSection
-              company={companyQueryFor(
-                status.signals.dom.url,
-                status.signals.dom.title,
-                status.signals.dom.ogTags,
-              )}
-              brief={briefStatus.brief}
-              detections={status.detections}
+          <CompetitorBanner detections={status.detections} />
+          <nav className="tab-bar no-print" role="tablist">
+            <button
+              role="tab"
+              aria-selected={tab === 'brief'}
+              className={tab === 'brief' ? 'tab active' : 'tab'}
+              onClick={() => setTab('brief')}
+            >
+              Brief
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === 'signals'}
+              className={tab === 'signals' ? 'tab active' : 'tab'}
+              onClick={() => setTab('signals')}
+            >
+              Signals
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === 'outreach'}
+              className={tab === 'outreach' ? 'tab active' : 'tab'}
+              onClick={() => setTab('outreach')}
+            >
+              Outreach
+            </button>
+          </nav>
+          {tab === 'brief' && (
+            <BriefSection
+              status={briefStatus}
               news={status.news}
-              hiring={status.hiring}
+              detections={status.detections}
+              onRegenerate={regenerate}
             />
           )}
-          <StackSection detections={status.detections} />
-          <WhyNowSection hiring={status.hiring} news={status.news} />
-          <NewsSection news={status.news} />
-          <p className="no-print">
-            <button className="link" onClick={() => setShowRaw((v) => !v)}>
-              {showRaw ? 'Hide' : 'Show'} raw signals
-            </button>
-          </p>
-          {showRaw && <pre className="no-print">{JSON.stringify(status.signals, null, 2)}</pre>}
+          {tab === 'signals' && (
+            <>
+              <StackSection detections={status.detections} />
+              <WhyNowSection hiring={status.hiring} news={status.news} />
+              <NewsSection news={status.news} />
+              <p className="no-print">
+                <button className="link" onClick={() => setShowRaw((v) => !v)}>
+                  {showRaw ? 'Hide' : 'Show'} raw signals
+                </button>
+              </p>
+              {showRaw && <pre className="no-print">{JSON.stringify(status.signals, null, 2)}</pre>}
+            </>
+          )}
+          {tab === 'outreach' &&
+            (briefStatus.kind === 'ready' ? (
+              <OutreachSection
+                company={companyQueryFor(
+                  status.signals.dom.url,
+                  status.signals.dom.title,
+                  status.signals.dom.ogTags,
+                )}
+                brief={briefStatus.brief}
+                detections={status.detections}
+                news={status.news}
+                hiring={status.hiring}
+              />
+            ) : (
+              <p>Generate the brief first, then draft outreach from it.</p>
+            ))}
         </>
       )}
     </main>

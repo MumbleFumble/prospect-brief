@@ -119,3 +119,39 @@ button.link {
   color: #888;
   font-style: italic;
 }
+
+.competitor-banner {
+  border: 1px solid #d97706;
+  background: rgba(217, 119, 6, 0.12);
+  border-radius: 8px;
+  padding: 4px 12px;
+  margin: 8px 0;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.4);
+  margin: 10px 0 4px;
+  position: sticky;
+  top: 0;
+  background: inherit;
+  z-index: 1;
+}
+
+.tab {
+  border: none;
+  background: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  opacity: 0.65;
+  border-bottom: 2px solid transparent;
+}
+
+.tab.active {
+  opacity: 1;
+  font-weight: 600;
+  border-bottom-color: #2563eb;
+}

@@ -48,7 +48,7 @@ describe('buildOutreachPrompt', () => {
         departments: [{ name: 'Engineering', count: 20 }],
         topRoles: [],
       },
-      { whatYouSell: 'Payments analytics', idealCustomer: 'Fintechs', valueProps: ['See churn'] },
+      { whatYouSell: 'Payments analytics', idealCustomer: 'Fintechs', valueProps: ['See churn'], competitors: [] },
     );
     expect(prompt).toContain('Acme');
     expect(prompt).toContain('42 open roles');

@@ -12,6 +12,8 @@ export interface SellerProfile {
   idealCustomer: string;
   /** 2-3 value props. */
   valueProps: string[];
+  /** Competitor product/company names to watch for in the tech stack. */
+  competitors: string[];
 }
 
 export interface Settings {
@@ -23,7 +25,7 @@ export interface Settings {
 const DEFAULTS: Settings = {
   apiKey: '',
   model: DEFAULT_MODEL,
-  sellerProfile: { whatYouSell: '', idealCustomer: '', valueProps: [] },
+  sellerProfile: { whatYouSell: '', idealCustomer: '', valueProps: [], competitors: [] },
 };
 
 function readProfile(stored: Record<string, unknown>): SellerProfile {
@@ -35,6 +37,9 @@ function readProfile(stored: Record<string, unknown>): SellerProfile {
       idealCustomer: typeof o.idealCustomer === 'string' ? o.idealCustomer : '',
       valueProps: Array.isArray(o.valueProps)
         ? o.valueProps.filter((v): v is string => typeof v === 'string').slice(0, 3)
+        : [],
+      competitors: Array.isArray(o.competitors)
+        ? o.competitors.filter((v): v is string => typeof v === 'string').slice(0, 10)
         : [],
     };
   }

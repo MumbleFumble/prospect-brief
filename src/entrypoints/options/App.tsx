@@ -7,6 +7,7 @@ export default function App() {
   const [whatYouSell, setWhatYouSell] = useState('');
   const [idealCustomer, setIdealCustomer] = useState('');
   const [valueProps, setValueProps] = useState<string[]>(['', '', '']);
+  const [competitors, setCompetitors] = useState('');
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -19,6 +20,7 @@ export default function App() {
       const vp = [...s.sellerProfile.valueProps];
       while (vp.length < 3) vp.push('');
       setValueProps(vp.slice(0, 3));
+      setCompetitors(s.sellerProfile.competitors.join(', '));
       setLoaded(true);
     });
   }, []);
@@ -33,6 +35,10 @@ export default function App() {
       whatYouSell: whatYouSell.trim(),
       idealCustomer: idealCustomer.trim(),
       valueProps: valueProps.map((v) => v.trim()).filter(Boolean),
+      competitors: competitors
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
     };
     await saveSettings({
       apiKey: apiKey.trim(),
@@ -124,6 +130,19 @@ export default function App() {
             spellCheck={true}
           />
         </label>
+        <label>
+          Competitors (comma-separated)
+          <input
+            type="text"
+            value={competitors}
+            onChange={(e) => setCompetitors(e.target.value)}
+            placeholder="e.g. Segment, HubSpot, Salesforce"
+            spellCheck={false}
+          />
+        </label>
+        <p className="hint">
+          If a prospect already uses one of these, the brief flags it and angles for displacement.
+        </p>
         <label>
           Value prop 3
           <input
