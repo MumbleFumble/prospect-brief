@@ -52,6 +52,7 @@ export type CollectRequest =
       signals: PageSignals;
       detections: Detection[];
       news: NewsItem[];
+      hiring: HiringSignals | null;
     }
   | { type: 'CLEAR_CACHE'; url: string };
 
@@ -65,6 +66,7 @@ export interface Detection {
 }
 
 import type { Brief } from './brief';
+import type { HiringSignals } from './hiring';
 
 /** A news headline about the company. */
 export interface NewsItem {
@@ -81,6 +83,7 @@ export type CollectResponse =
       signals: PageSignals;
       detections: Detection[];
       news: NewsItem[];
+      hiring: HiringSignals | null;
       cachedBrief?: Brief;
       cachedAt?: number;
     }

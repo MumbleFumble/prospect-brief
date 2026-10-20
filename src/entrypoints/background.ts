@@ -2,6 +2,7 @@ import { defineBackground } from 'wxt/utils/define-background';
 import { collectDomSignals, collectMainWorldSignals } from '../lib/collectors';
 import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
+import { fetchHiringSignals } from '../lib/hiring';
 import { generateBrief } from '../lib/brief';
 import { getSettings } from '../lib/settings';
 import { domainFor, getCachedBrief, setCachedBrief, clearCachedBrief } from '../lib/cache';
@@ -81,14 +82,20 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
     const headers = headersByTab.get(tabId) ?? {};
     const detections = detectTech(signals, headers);
 
-    // News fetch is best-effort; a failure shouldn't block the brief.
-    let news: NewsItem[] = [];
-    try {
-      const query = companyQueryFor(signals.dom.url, signals.dom.title, signals.dom.ogTags);
-      news = await new GoogleNewsRssProvider().fetchNews(query, 5);
-    } catch (e) {
-      console.warn('News fetch failed:', e);
-    }
+    // News and hiring fetches are best-effort and run in parallel;
+    // a failure in either shouldn't block the brief.
+    const query = companyQueryFor(signals.dom.url, signals.dom.title, signals.dom.ogTags);
+    const [newsResult, hiring] = await Promise.all([
+      new GoogleNewsRssProvider().fetchNews(query, 5).catch((e) => {
+        console.warn('News fetch failed:', e);
+        return [] as NewsItem[];
+      }),
+      fetchHiringSignals(signals).catch((e) => {
+        console.warn('Hiring fetch failed:', e);
+        return null;
+      }),
+    ]);
+    const news: NewsItem[] = newsResult;
 
     // Include a cached brief if we have a fresh one for this domain.
     const domain = domainFor(signals.dom.url);
@@ -99,6 +106,7 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
       signals,
       detections,
       news,
+      hiring,
       ...(cached ? { cachedBrief: cached.brief, cachedAt: cached.cachedAt } : {}),
     };
   } catch (e) {
@@ -144,6 +152,7 @@ export default defineBackground(() => {
             msg.detections,
             msg.news,
             sellerProfile,
+            msg.hiring,
           );
           // Cache the completed brief per domain (best-effort).
           const domain = domainFor(msg.signals.dom.url);
@@ -153,6 +162,7 @@ export default defineBackground(() => {
             signals: msg.signals,
             detections: msg.detections,
             news: msg.news,
+            hiring: msg.hiring,
           }).catch((e) => console.warn('Cache write failed:', e));
           return { ok: true, brief };
         } catch (e) {

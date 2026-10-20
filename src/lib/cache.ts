@@ -1,5 +1,6 @@
 import type { Brief } from './brief';
 import type { Detection, NewsItem, PageSignals } from './types';
+import type { HiringSignals } from './hiring';
 
 /**
  * Per-domain brief cache (step 6). Completed briefs are stored in
@@ -15,6 +16,7 @@ export interface CachedBrief {
   signals: PageSignals;
   detections: Detection[];
   news: NewsItem[];
+  hiring?: HiringSignals | null;
   cachedAt: number;
 }
 

@@ -10,10 +10,17 @@ import type {
   NewsItem,
   PageSignals,
 } from '../../lib/types';
+import type { HiringSignals } from '../../lib/hiring';
 
 type Status =
   | { kind: 'loading' }
-  | { kind: 'ready'; signals: PageSignals; detections: Detection[]; news: NewsItem[] }
+  | {
+      kind: 'ready';
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+      hiring: HiringSignals | null;
+    }
   | { kind: 'error'; message: string };
 
 type BriefStatus =
@@ -99,6 +106,46 @@ function NewsSection({ news }: { news: NewsItem[] }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function WhyNowSection({ hiring, news }: { hiring: HiringSignals | null; news: NewsItem[] }) {
+  if (!hiring && news.length === 0) return null;
+  return (
+    <section>
+      <h2>Why now</h2>
+      {hiring ? (
+        <>
+          <p>
+            <strong>{hiring.totalRoles} open roles</strong> on {hiring.board}
+            {hiring.departments.length > 0 &&
+              ` - hiring most in ${hiring.departments
+                .slice(0, 3)
+                .map((d) => `${d.name} (${d.count})`)
+                .join(', ')}`}
+            .
+          </p>
+          <ul>
+            {hiring.topRoles.map((r) => (
+              <li key={r.url}>
+                <a href={r.url} target="_blank" rel="noreferrer">
+                  {r.title}
+                </a>
+                {r.location ? ` - ${r.location}` : ''}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p>No public job board found for this company.</p>
+      )}
+      {news.length > 0 && (
+        <p>
+          Latest headline: <em>{news[0].title}</em>
+          {news[0].pubDate ? ` (${news[0].pubDate.slice(0, 10)})` : ''}
+        </p>
       )}
     </section>
   );
@@ -199,13 +246,19 @@ export default function App() {
   const [copied, setCopied] = useState(false);
 
   const generate = useCallback(
-    async (signals: PageSignals, detections: Detection[], news: NewsItem[]) => {
+    async (
+      signals: PageSignals,
+      detections: Detection[],
+      news: NewsItem[],
+      hiring: HiringSignals | null,
+    ) => {
       setBriefStatus({ kind: 'loading' });
       const briefRes = (await chrome.runtime.sendMessage({
         type: 'GENERATE_BRIEF',
         signals,
         detections,
         news,
+        hiring,
       })) as BriefResponse;
       if (briefRes.ok) setBriefStatus({ kind: 'ready', brief: briefRes.brief });
       else setBriefStatus({ kind: 'error', message: briefRes.error });
@@ -216,7 +269,7 @@ export default function App() {
   const regenerate = useCallback(async () => {
     if (status.kind !== 'ready') return;
     await chrome.runtime.sendMessage({ type: 'CLEAR_CACHE', url: status.signals.dom.url });
-    await generate(status.signals, status.detections, status.news);
+    await generate(status.signals, status.detections, status.news, status.hiring);
   }, [status, generate]);
 
   const copyMarkdown = useCallback(async () => {
@@ -257,13 +310,14 @@ export default function App() {
           signals: res.signals,
           detections: res.detections,
           news: res.news,
+          hiring: res.hiring,
         });
 
         // Use the cached brief if fresh; otherwise generate.
         if (res.cachedBrief) {
           setBriefStatus({ kind: 'ready', brief: res.cachedBrief, cachedAt: res.cachedAt });
         } else {
-          await generate(res.signals, res.detections, res.news);
+          await generate(res.signals, res.detections, res.news, res.hiring);
         }
       } catch (e) {
         if (!cancelled)
@@ -308,6 +362,7 @@ export default function App() {
             onRegenerate={regenerate}
           />
           <StackSection detections={status.detections} />
+          <WhyNowSection hiring={status.hiring} news={status.news} />
           <NewsSection news={status.news} />
           <p className="no-print">
             <button className="link" onClick={() => setShowRaw((v) => !v)}>
