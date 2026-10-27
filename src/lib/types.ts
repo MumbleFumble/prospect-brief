@@ -62,7 +62,10 @@ export type CollectRequest =
       news: NewsItem[];
       hiring: HiringSignals | null;
     }
-  | { type: 'CLEAR_CACHE'; url: string };
+  | { type: 'CLEAR_CACHE'; url: string }
+  | { type: 'START_BATCH'; domains: string[] }
+  | { type: 'GET_BATCH_STATE' }
+  | { type: 'CANCEL_BATCH' };
 
 /** A detected technology with confidence and evidence. */
 export interface Detection {

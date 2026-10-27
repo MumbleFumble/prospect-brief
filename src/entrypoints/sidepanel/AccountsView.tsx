@@ -16,6 +16,14 @@ import {
 } from '../../lib/accounts';
 import { listSavedBriefs, type SavedBrief } from '../../lib/saved';
 import { briefToCrmNote, savedBriefsToCsv } from '../../lib/export';
+import {
+  MAX_BATCH,
+  batchProgress,
+  estimateBatchCost,
+  parseDomainList,
+  type BatchState,
+} from '../../lib/batch';
+import { getSettings } from '../../lib/settings';
 
 function download(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
@@ -150,6 +158,152 @@ function AccountCard({
   );
 }
 
+function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
+  const [text, setText] = useState('');
+  const [model, setModel] = useState('claude-sonnet-4-5');
+  const [state, setState] = useState<BatchState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
+  const lastDone = useRef(0);
+
+  const domains = parseDomainList(text).slice(0, MAX_BATCH);
+  const estimate = estimateBatchCost(domains.length, model);
+  const progress = state ? batchProgress(state) : null;
+
+  const poll = useCallback(async () => {
+    const res = (await chrome.runtime.sendMessage({ type: 'GET_BATCH_STATE' })) as {
+      ok: boolean;
+      state: BatchState | null;
+    };
+    if (res.ok) {
+      setState(res.state);
+      const done = res.state ? batchProgress(res.state).done : 0;
+      if (done !== lastDone.current) {
+        lastDone.current = done;
+        await onBatchDone();
+      }
+    }
+  }, [onBatchDone]);
+
+  useEffect(() => {
+    void getSettings().then((s) => setModel(s.model));
+    void poll();
+  }, [poll]);
+
+  useEffect(() => {
+    if (!progress?.active) return;
+    const id = setInterval(() => void poll(), 2500);
+    return () => clearInterval(id);
+  }, [progress?.active, poll]);
+
+  async function start() {
+    setError(null);
+    const res = (await chrome.runtime.sendMessage({ type: 'START_BATCH', domains })) as {
+      ok: boolean;
+      error?: string;
+      state?: BatchState;
+    };
+    if (!res.ok) setError(res.error ?? 'Could not start the batch.');
+    else {
+      setState(res.state ?? null);
+      setText('');
+    }
+  }
+
+  async function cancel() {
+    await chrome.runtime.sendMessage({ type: 'CANCEL_BATCH' });
+    await poll();
+  }
+
+  return (
+    <section>
+      <h2>Batch research</h2>
+      <p>
+        <small>
+          Paste domains (one per line, or a CSV export) and each is researched into the account
+          store. Detection is partial — it reads the raw page HTML, so open a site later for a
+          full rescan.
+        </small>
+      </p>
+      <p className="no-print">
+        <textarea
+          aria-label="Domains to research"
+          placeholder={'stripe.com\nlinear.app\nairbnb.com'}
+          value={text}
+          rows={4}
+          style={{ width: '100%' }}
+          onChange={(e) => setText(e.target.value)}
+        />
+      </p>
+      <p className="no-print">
+        <button className="link" onClick={() => csvRef.current?.click()}>
+          Import CSV/TXT
+        </button>
+        <input
+          ref={csvRef}
+          type="file"
+          accept=".csv,.txt,text/csv,text/plain"
+          style={{ display: 'none' }}
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (f) setText(await f.text());
+            e.target.value = '';
+          }}
+        />
+      </p>
+      {domains.length > 0 && (
+        <p>
+          <small>
+            {domains.length} domain{domains.length === 1 ? '' : 's'} · estimated cost $
+            {estimate.estUsd.toFixed(2)} on your API key (range ${estimate.lowUsd.toFixed(2)}–$
+            {estimate.highUsd.toFixed(2)})
+            {estimate.pricingKnown ? '' : ' · approximate pricing'}
+          </small>
+        </p>
+      )}
+      <p className="no-print">
+        <button onClick={() => void start()} disabled={domains.length === 0 || progress?.active}>
+          Start batch
+        </button>
+      </p>
+      {error && (
+        <p role="alert">
+          <small>{error}</small>
+        </p>
+      )}
+      {state && progress && (
+        <>
+          <p>
+            <small>
+              Batch: {progress.done} done · {progress.errors} failed · {progress.remaining}{' '}
+              remaining of {progress.total}
+              {progress.active ? ' · running…' : ' · finished'}
+            </small>{' '}
+            {progress.active && (
+              <button className="link no-print" onClick={() => void cancel()}>
+                Cancel
+              </button>
+            )}
+          </p>
+          {state.items.some((i) => i.status === 'error') && (
+            <ul>
+              {state.items
+                .filter((i) => i.status === 'error')
+                .map((i) => (
+                  <li key={i.domain}>
+                    <small>
+                      {i.domain}: {i.error}
+                    </small>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function AccountsView({ onBack }: { onBack: () => void }) {
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
@@ -198,6 +352,7 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
           Back to current page
         </button>
       </p>
+      <BatchSection onBatchDone={reload} />
       {accounts.length === 0 && (
         <p>No accounts yet. Generate a brief and the account is stored automatically.</p>
       )}

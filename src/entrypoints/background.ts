@@ -5,6 +5,14 @@ import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { fetchHiringSignals } from '../lib/hiring';
 import { listSavedBriefs, saveBrief } from '../lib/saved';
 import { applySnapshot, migrateSavedBriefsIfNeeded, upsertAccount } from '../lib/accounts';
+import {
+  MAX_BATCH,
+  batchProgress,
+  getBatchState,
+  setBatchState,
+  signalsFromHtml,
+  type BatchState,
+} from '../lib/batch';
 import { generateBrief } from '../lib/brief';
 import { generateOutreach } from '../lib/outreach';
 import { getSettings } from '../lib/settings';
@@ -121,6 +129,122 @@ async function collectSignals(tabId: number): Promise<CollectResponse> {
 
 /** Latest collection result per tab, populated during onClicked (activeTab valid). */
 const pendingByTab = new Map<number, Promise<CollectResponse>>();
+
+/* ------------------------------------------------------------------ */
+/* Batch research (v0.3 element 2)                                     */
+/*                                                                     */
+/* The queue lives in chrome.storage.local so it survives the MV3      */
+/* service worker being killed; a 1-minute alarm resumes processing   */
+/* when the heartbeat goes stale.                                      */
+/* ------------------------------------------------------------------ */
+
+let batchRunning = false;
+const BATCH_ALARM = 'batch-resume';
+
+/** Research one domain from fetched HTML and store the account + brief. */
+async function researchDomain(domain: string): Promise<void> {
+  const { apiKey, model, sellerProfile } = await getSettings();
+  if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
+
+  const res = await fetch(`https://${domain}/`, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`Fetch failed: HTTP ${res.status}`);
+  const headers: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
+  const html = await res.text();
+
+  const signals = signalsFromHtml(domain, html);
+  const detections = detectTech(signals, headers);
+  const company = companyQueryFor(signals.dom.url, signals.dom.title, signals.dom.ogTags);
+
+  const provider = new GoogleNewsRssProvider();
+  const news = await provider.fetchNews(company).catch(() => [] as NewsItem[]);
+  const hiring = await fetchHiringSignals(signals).catch(() => null);
+
+  const brief = await generateBrief(apiKey, model, signals, detections, news, sellerProfile, hiring);
+
+  await setCachedBrief({ domain, brief, signals, detections, news, hiring }).catch(() => {});
+  await saveBrief({
+    company,
+    domain,
+    url: signals.dom.url,
+    brief,
+    detections,
+    news,
+    hiring,
+  }).catch(() => {});
+  await upsertAccount(
+    domain,
+    company,
+    signals.dom.url,
+    (account) =>
+      applySnapshot(
+        account,
+        {
+          takenAt: Date.now(),
+          detections,
+          news,
+          hiring,
+          detectionQuality: 'partial',
+        },
+        brief,
+      ),
+    Date.now(),
+  );
+}
+
+async function processBatch(): Promise<void> {
+  if (batchRunning) return;
+  batchRunning = true;
+  try {
+    for (;;) {
+      const state = await getBatchState();
+      if (!state) return;
+      // An item stuck in 'running' means a previous worker died mid-item.
+      const stuck = state.items.find((i) => i.status === 'running');
+      if (stuck) stuck.status = 'queued';
+      const next = state.items.find((i) => i.status === 'queued');
+      if (!next) {
+        state.heartbeat = Date.now();
+        await setBatchState(state);
+        await chrome.alarms.clear(BATCH_ALARM).catch(() => false);
+        return;
+      }
+      next.status = 'running';
+      state.heartbeat = Date.now();
+      await setBatchState(state);
+      try {
+        await researchDomain(next.domain);
+        next.status = 'done';
+      } catch (e) {
+        next.status = 'error';
+        next.error = e instanceof Error ? e.message : String(e);
+      }
+      next.finishedAt = Date.now();
+      state.heartbeat = Date.now();
+      await setBatchState(state);
+    }
+  } finally {
+    batchRunning = false;
+  }
+}
+
+async function startBatch(domains: string[]): Promise<BatchState> {
+  const existing = await getBatchState();
+  if (existing && batchProgress(existing).active) {
+    throw new Error('A batch is already running. Cancel it before starting another.');
+  }
+  const state: BatchState = {
+    items: domains.slice(0, MAX_BATCH).map((domain) => ({ domain, status: 'queued' as const })),
+    createdAt: Date.now(),
+    heartbeat: Date.now(),
+  };
+  await setBatchState(state);
+  await chrome.alarms.create(BATCH_ALARM, { periodInMinutes: 1 });
+  void processBatch();
+  return state;
+}
 
 export default defineBackground(() => {
   startHeaderCapture();
@@ -239,6 +363,47 @@ export default defineBackground(() => {
       clearCachedBrief(domainFor(msg.url)).then(() => sendResponse({ ok: true }));
       return true;
     }
+    if (msg.type === 'START_BATCH') {
+      startBatch(msg.domains)
+        .then((state) => sendResponse({ ok: true, state }))
+        .catch((e) =>
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+      return true;
+    }
+    if (msg.type === 'GET_BATCH_STATE') {
+      getBatchState().then((state) => sendResponse({ ok: true, state }));
+      return true;
+    }
+    if (msg.type === 'CANCEL_BATCH') {
+      (async () => {
+        const state = await getBatchState();
+        if (state) {
+          for (const item of state.items) {
+            if (item.status === 'queued') item.status = 'cancelled';
+          }
+          state.heartbeat = Date.now();
+          await setBatchState(state);
+        }
+        sendResponse({ ok: true });
+      })();
+      return true;
+    }
     return false;
+  });
+
+  // Resume a batch whose worker was killed (stale heartbeat).
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== BATCH_ALARM) return;
+    void (async () => {
+      const state = await getBatchState();
+      if (!state) return;
+      const progress = batchProgress(state);
+      if (!progress.active) {
+        await chrome.alarms.clear(BATCH_ALARM).catch(() => false);
+        return;
+      }
+      if (!batchRunning && Date.now() - state.heartbeat > 90_000) void processBatch();
+    })();
   });
 });
