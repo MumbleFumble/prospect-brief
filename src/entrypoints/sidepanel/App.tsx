@@ -16,6 +16,7 @@ import type { HiringSignals } from '../../lib/hiring';
 import { getSettings } from '../../lib/settings';
 import { findCompetitors, type CompetitorMatch } from '../../lib/competitors';
 import AccountsView from './AccountsView';
+import TodayView from './TodayView';
 
 type Status =
   | { kind: 'loading' }
@@ -356,7 +357,7 @@ function BriefSection({
 }
 
 export default function App() {
-  const [view, setView] = useState<'current' | 'accounts'>('current');
+  const [view, setView] = useState<'current' | 'accounts' | 'today'>('current');
   const [tab, setTab] = useState<'brief' | 'signals' | 'outreach'>('brief');
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [briefStatus, setBriefStatus] = useState<BriefStatus>({ kind: 'idle' });
@@ -448,11 +449,18 @@ export default function App() {
   }, [generate]);
 
   if (view === 'accounts') return <AccountsView onBack={() => setView('current')} />;
+  if (view === 'today')
+    return (
+      <TodayView onBack={() => setView('current')} onOpenAccounts={() => setView('accounts')} />
+    );
 
   return (
     <main>
       <h1>Prospect Brief</h1>
       <p className="no-print">
+        <button className="link" onClick={() => setView('today')}>
+          Today
+        </button>{' '}
         <button className="link" onClick={() => setView('accounts')}>
           Accounts
         </button>

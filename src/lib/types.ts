@@ -74,6 +74,7 @@ export type CollectRequest =
     }
   | { type: 'START_BATCH'; domains: string[] }
   | { type: 'GET_BATCH_STATE' }
+  | { type: 'REFRESH_WATCH_BADGE' }
   | { type: 'CANCEL_BATCH' };
 
 /** A detected technology with confidence and evidence. */

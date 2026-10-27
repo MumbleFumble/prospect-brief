@@ -4,7 +4,16 @@ import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { fetchHiringSignals } from '../lib/hiring';
 import { listSavedBriefs, saveBrief } from '../lib/saved';
-import { applySnapshot, migrateSavedBriefsIfNeeded, upsertAccount } from '../lib/accounts';
+import {
+  applySnapshot,
+  latestSnapshot,
+  listAccounts,
+  migrateSavedBriefsIfNeeded,
+  putAccount,
+  upsertAccount,
+  type SignalSnapshot,
+} from '../lib/accounts';
+import { diffSnapshots, pendingWatchEvents } from '../lib/watch';
 import {
   MAX_BATCH,
   batchProgress,
@@ -143,11 +152,8 @@ const pendingByTab = new Map<number, Promise<CollectResponse>>();
 let batchRunning = false;
 const BATCH_ALARM = 'batch-resume';
 
-/** Research one domain from fetched HTML and store the account + brief. */
-async function researchDomain(domain: string): Promise<void> {
-  const { apiKey, model, sellerProfile } = await getSettings();
-  if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
-
+/** Fetch a domain's HTML and build partial signals + detections + news + hiring. */
+async function collectFromHtml(domain: string) {
   const res = await fetch(`https://${domain}/`, { redirect: 'follow' });
   if (!res.ok) throw new Error(`Fetch failed: HTTP ${res.status}`);
   const headers: Record<string, string> = {};
@@ -163,6 +169,15 @@ async function researchDomain(domain: string): Promise<void> {
   const provider = new GoogleNewsRssProvider();
   const news = await provider.fetchNews(company).catch(() => [] as NewsItem[]);
   const hiring = await fetchHiringSignals(signals).catch(() => null);
+  return { signals, detections, company, news, hiring };
+}
+
+/** Research one domain from fetched HTML and store the account + brief. */
+async function researchDomain(domain: string): Promise<void> {
+  const { apiKey, model, sellerProfile } = await getSettings();
+  if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
+
+  const { signals, detections, company, news, hiring } = await collectFromHtml(domain);
 
   const brief = await generateBrief(apiKey, model, signals, detections, news, sellerProfile, hiring);
 
@@ -246,6 +261,60 @@ async function startBatch(domains: string[]): Promise<BatchState> {
   await chrome.alarms.create(BATCH_ALARM, { periodInMinutes: 1 });
   void processBatch();
   return state;
+}
+
+/* ------------------------------------------------------------------ */
+/* Watch & re-engage (v0.3 element 5)                                  */
+/*                                                                     */
+/* Every 6 hours, watched accounts are re-fetched and diffed against   */
+/* their last snapshot (deterministic — no model call). Changes are     */
+/* stored as pending events and surfaced via the icon badge + Today.   */
+/* Local-only: checks run only while Chrome is open.                   */
+/* ------------------------------------------------------------------ */
+
+const WATCH_ALARM = 'watch-check';
+const WATCH_PERIOD_MINUTES = 360;
+
+async function updateWatchBadge(): Promise<void> {
+  const accounts = await listAccounts().catch(() => []);
+  const total = accounts.reduce((sum, a) => sum + pendingWatchEvents(a).length, 0);
+  await chrome.action.setBadgeText({ text: total > 0 ? String(total) : '' }).catch(() => {});
+  if (total > 0) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#b45309' }).catch(() => {});
+  }
+}
+
+async function runWatchChecks(): Promise<void> {
+  const accounts = await listAccounts();
+  for (const account of accounts) {
+    if (!account.watched) continue;
+    const prev = latestSnapshot(account);
+    if (!prev) continue;
+    try {
+      const { signals, detections, news, hiring } = await collectFromHtml(account.domain);
+      const next: SignalSnapshot = {
+        takenAt: Date.now(),
+        detections,
+        news,
+        hiring,
+        detectionQuality: 'partial',
+      };
+      const events = diffSnapshots(prev, next);
+      if (events.length > 0) {
+        const withSnapshot = applySnapshot(account, next);
+        await putAccount({
+          ...withSnapshot,
+          watchEvents: [...pendingWatchEvents(account), ...events],
+          lastWatchCheckAt: Date.now(),
+        });
+      } else {
+        await putAccount({ ...account, lastWatchCheckAt: Date.now() });
+      }
+    } catch (e) {
+      console.warn(`Watch check failed for ${account.domain}:`, e);
+    }
+  }
+  await updateWatchBadge();
 }
 
 export default defineBackground(() => {
@@ -399,6 +468,10 @@ export default defineBackground(() => {
       getBatchState().then((state) => sendResponse({ ok: true, state }));
       return true;
     }
+    if (msg.type === 'REFRESH_WATCH_BADGE') {
+      updateWatchBadge().then(() => sendResponse({ ok: true }));
+      return true;
+    }
     if (msg.type === 'CANCEL_BATCH') {
       (async () => {
         const state = await getBatchState();
@@ -416,8 +489,22 @@ export default defineBackground(() => {
     return false;
   });
 
-  // Resume a batch whose worker was killed (stale heartbeat).
+  // Ensure the watch schedule exists, and show any pending badge.
+  void (async () => {
+    const existing = await chrome.alarms.get(WATCH_ALARM).catch(() => undefined);
+    if (!existing) {
+      await chrome.alarms
+        .create(WATCH_ALARM, { periodInMinutes: WATCH_PERIOD_MINUTES })
+        .catch(() => {});
+    }
+    await updateWatchBadge();
+  })();
+
   chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === WATCH_ALARM) {
+      void runWatchChecks();
+      return;
+    }
     if (alarm.name !== BATCH_ALARM) return;
     void (async () => {
       const state = await getBatchState();

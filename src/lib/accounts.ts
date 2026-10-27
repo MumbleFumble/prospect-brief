@@ -2,6 +2,7 @@ import type { Brief } from './brief';
 import type { Detection, NewsItem } from './types';
 import type { HiringSignals } from './hiring';
 import type { SavedBrief } from './saved';
+import type { WatchEvent } from './watch';
 
 /**
  * Account Store (v0.3 element 1).
@@ -65,6 +66,10 @@ export interface AccountRecord {
   brief: Brief | null;
   briefGeneratedAt: number | null;
   touches: TouchLogEntry[];
+  /** Watch & re-engage (element 5). Optional: older records lack them. */
+  watched?: boolean;
+  lastWatchCheckAt?: number;
+  watchEvents?: WatchEvent[];
   createdAt: number;
   updatedAt: number;
 }

@@ -17,6 +17,7 @@ import {
   type AccountStatus,
 } from '../../lib/accounts';
 import { STANDARD_PERSONAS, suggestPersonas } from '../../lib/personas';
+import { pendingWatchEvents } from '../../lib/watch';
 import { sequenceToTouches } from '../../lib/sequences';
 import type { SequenceResponse } from '../../lib/types';
 import { listSavedBriefs, type SavedBrief } from '../../lib/saved';
@@ -219,6 +220,25 @@ function AccountCard({
           {snap?.hiring ? ` · ${snap.hiring.totalRoles} open roles` : ''}
           {snap?.detectionQuality === 'partial' ? ' · partial detection' : ''}
         </small>
+      </p>
+      <p className="no-print">
+        <label>
+          <input
+            type="checkbox"
+            checked={account.watched ?? false}
+            onChange={async (e) => {
+              await putAccount({ ...account, watched: e.target.checked });
+              await onChange();
+            }}
+          />{' '}
+          Watch for changes
+        </label>
+        {account.lastWatchCheckAt ? (
+          <small> · last checked {new Date(account.lastWatchCheckAt).toLocaleDateString()}</small>
+        ) : null}
+        {pendingWatchEvents(account).length > 0 ? (
+          <small> · {pendingWatchEvents(account).length} new signal(s) — see Today</small>
+        ) : null}
       </p>
       <p className="no-print">
         <label>
