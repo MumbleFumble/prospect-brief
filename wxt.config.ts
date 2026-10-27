@@ -8,7 +8,7 @@ export default defineConfig({
     name: 'Prospect Brief',
     description:
       'Generate a one-page account brief for any company website: overview, tech stack, news, and talking points.',
-    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'webRequest'],
+    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'unlimitedStorage', 'webRequest'],
     host_permissions: [
       '<all_urls>',
       'https://api.anthropic.com/*',

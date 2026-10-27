@@ -3,7 +3,8 @@ import { collectDomSignals, collectMainWorldSignals } from '../lib/collectors';
 import { detectTech } from '../detection/engine';
 import { GoogleNewsRssProvider, companyQueryFor } from '../lib/news';
 import { fetchHiringSignals } from '../lib/hiring';
-import { saveBrief } from '../lib/saved';
+import { listSavedBriefs, saveBrief } from '../lib/saved';
+import { applySnapshot, migrateSavedBriefsIfNeeded, upsertAccount } from '../lib/accounts';
 import { generateBrief } from '../lib/brief';
 import { generateOutreach } from '../lib/outreach';
 import { getSettings } from '../lib/settings';
@@ -124,6 +125,11 @@ const pendingByTab = new Map<number, Promise<CollectResponse>>();
 export default defineBackground(() => {
   startHeaderCapture();
 
+  // One-time migration of v0.2 saved briefs into the account store.
+  migrateSavedBriefsIfNeeded(listSavedBriefs).catch((e) =>
+    console.warn('Account migration failed:', e),
+  );
+
   // Collect signals DURING the click gesture (activeTab is granted here),
   // then open the side panel. The panel picks up the result via COLLECT_SIGNALS.
   chrome.action.onClicked.addListener((tab) => {
@@ -168,12 +174,13 @@ export default defineBackground(() => {
             hiring: msg.hiring,
           }).catch((e) => console.warn('Cache write failed:', e));
           // Also persist to saved history (best-effort, never expires).
+          const company = companyQueryFor(
+            msg.signals.dom.url,
+            msg.signals.dom.title,
+            msg.signals.dom.ogTags,
+          );
           await saveBrief({
-            company: companyQueryFor(
-              msg.signals.dom.url,
-              msg.signals.dom.title,
-              msg.signals.dom.ogTags,
-            ),
+            company,
             domain,
             url: msg.signals.dom.url,
             brief,
@@ -181,6 +188,25 @@ export default defineBackground(() => {
             news: msg.news,
             hiring: msg.hiring,
           }).catch((e) => console.warn('Save failed:', e));
+          // Upsert the account record (v0.3 store) with a fresh snapshot.
+          await upsertAccount(
+            domain,
+            company,
+            msg.signals.dom.url,
+            (account) =>
+              applySnapshot(
+                account,
+                {
+                  takenAt: Date.now(),
+                  detections: msg.detections,
+                  news: msg.news,
+                  hiring: msg.hiring,
+                  detectionQuality: 'full',
+                },
+                brief,
+              ),
+            Date.now(),
+          ).catch((e) => console.warn('Account upsert failed:', e));
           return { ok: true, brief };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
