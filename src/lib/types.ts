@@ -63,6 +63,15 @@ export type CollectRequest =
       hiring: HiringSignals | null;
     }
   | { type: 'CLEAR_CACHE'; url: string }
+  | {
+      type: 'GENERATE_SEQUENCE';
+      company: string;
+      persona: string;
+      brief: Brief;
+      detections: Detection[];
+      news: NewsItem[];
+      hiring: HiringSignals | null;
+    }
   | { type: 'START_BATCH'; domains: string[] }
   | { type: 'GET_BATCH_STATE' }
   | { type: 'CANCEL_BATCH' };
@@ -79,6 +88,7 @@ export interface Detection {
 import type { Brief } from './brief';
 import type { HiringSignals } from './hiring';
 import type { OutreachDraft } from './outreach';
+import type { Sequence } from './sequences';
 
 /** A news headline about the company. */
 export interface NewsItem {
@@ -106,3 +116,7 @@ export type BriefResponse = { ok: true; brief: Brief } | { ok: false; error: str
 
 /** Response carrying a generated outreach draft, or an error. */
 export type OutreachResponse = { ok: true; draft: OutreachDraft } | { ok: false; error: string };
+
+export type SequenceResponse =
+  | { ok: true; sequence: Sequence }
+  | { ok: false; error: string };

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ACCOUNT_STATUSES,
   accountToSavedBrief,
+  addTouch,
   deleteAccount,
   exportAccountsJson,
   latestSnapshot,
   listAccounts,
+  markTouchSent,
   migrateSavedBriefsIfNeeded,
   parseAccountsImport,
   putAccount,
@@ -14,6 +16,9 @@ import {
   type AccountRecord,
   type AccountStatus,
 } from '../../lib/accounts';
+import { STANDARD_PERSONAS, suggestPersonas } from '../../lib/personas';
+import { sequenceToTouches } from '../../lib/sequences';
+import type { SequenceResponse } from '../../lib/types';
 import { listSavedBriefs, type SavedBrief } from '../../lib/saved';
 import { briefToCrmNote, savedBriefsToCsv } from '../../lib/export';
 import {
@@ -41,6 +46,132 @@ function download(filename: string, content: string, type: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+
+function SequenceSection({
+  account,
+  onChange,
+}: {
+  account: AccountRecord;
+  onChange: () => Promise<void>;
+}) {
+  const suggested = suggestPersonas(latestSnapshot(account)?.hiring ?? null);
+  const [persona, setPersona] = useState<string>(suggested[0] ?? STANDARD_PERSONAS[1]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const snap = latestSnapshot(account);
+
+  async function generate() {
+    if (!account.brief || !snap) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'GENERATE_SEQUENCE',
+        company: account.company,
+        persona,
+        brief: account.brief,
+        detections: snap.detections,
+        news: snap.news,
+        hiring: snap.hiring,
+      })) as SequenceResponse;
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      let next = account;
+      for (const touch of sequenceToTouches(res.sequence, Date.now())) {
+        next = addTouch(next, touch);
+      }
+      await putAccount(next);
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyTouch(id: string, body: string) {
+    await navigator.clipboard.writeText(body);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  return (
+    <>
+      <p className="no-print">
+        <label>
+          Persona{' '}
+          <select value={persona} onChange={(e) => setPersona(e.target.value)}>
+            {STANDARD_PERSONAS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+                {suggested.includes(p) ? ' (hiring)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>{' '}
+        <button onClick={() => void generate()} disabled={busy || !account.brief}>
+          {busy ? 'Drafting…' : 'Generate 3-touch sequence'}
+        </button>
+      </p>
+      {!account.brief && (
+        <p>
+          <small>Generate a brief first — sequences are built from its signals.</small>
+        </p>
+      )}
+      {error && (
+        <p role="alert">
+          <small>{error}</small>
+        </p>
+      )}
+      {account.touches.length > 0 && (
+        <ol>
+          {account.touches.map((t) => (
+            <li key={t.id}>
+              <small>
+                {t.kind}
+                {t.persona ? ` · ${t.persona}` : ''}
+                {t.scheduledFor
+                  ? ` · due ${new Date(t.scheduledFor).toLocaleDateString()}`
+                  : ''}
+                {' · '}
+                {t.sentAt ? `sent ${new Date(t.sentAt).toLocaleDateString()}` : 'not sent'}
+                {t.signal ? ` · signal: ${t.signal}` : ''}
+              </small>
+              {t.subject && (
+                <div>
+                  <small>
+                    <strong>{t.subject}</strong>
+                  </small>
+                </div>
+              )}
+              <div>
+                <small>{t.body}</small>
+              </div>
+              <span className="no-print">
+                <button className="link" onClick={() => void copyTouch(t.id, t.body)}>
+                  {copiedId === t.id ? 'Copied' : 'Copy'}
+                </button>{' '}
+                {!t.sentAt && (
+                  <button
+                    className="link"
+                    onClick={async () => {
+                      await putAccount(markTouchSent(account, t.id, Date.now()));
+                      await onChange();
+                    }}
+                  >
+                    Mark sent
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  );
 }
 
 function AccountCard({
@@ -132,6 +263,7 @@ function AccountCard({
           onBlur={() => void saveNotes()}
         />
       </p>
+      <SequenceSection account={account} onChange={onChange} />
       <p>
         <small>
           {account.snapshots.length} snapshot{account.snapshots.length === 1 ? '' : 's'} ·{' '}
@@ -148,15 +280,6 @@ function AccountCard({
               <small>
                 {new Date(s.takenAt).toLocaleString()} · {s.detections.length} technologies ·{' '}
                 {s.news.length} headlines · {s.hiring?.totalRoles ?? 0} roles · {s.detectionQuality}
-              </small>
-            </li>
-          ))}
-          {account.touches.map((t) => (
-            <li key={t.id}>
-              <small>
-                {new Date(t.createdAt).toLocaleString()} · {t.kind}
-                {t.persona ? ` to ${t.persona}` : ''} · {t.sentAt ? 'sent' : 'draft'}
-                {t.subject ? ` · “${t.subject}”` : ''}
               </small>
             </li>
           ))}

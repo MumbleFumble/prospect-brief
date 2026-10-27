@@ -49,6 +49,8 @@ export interface TouchLogEntry {
   createdAt: number;
   /** Null = drafted but not yet marked sent by the rep. */
   sentAt: number | null;
+  /** When this touch is due (sequence day offsets). */
+  scheduledFor?: number;
 }
 
 export interface AccountRecord {

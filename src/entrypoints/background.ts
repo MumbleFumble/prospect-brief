@@ -15,11 +15,13 @@ import {
 } from '../lib/batch';
 import { generateBrief } from '../lib/brief';
 import { generateOutreach } from '../lib/outreach';
+import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
 import { domainFor, getCachedBrief, setCachedBrief, clearCachedBrief } from '../lib/cache';
 import type {
   BriefResponse,
   OutreachResponse,
+  SequenceResponse,
   CollectRequest,
   CollectResponse,
   NewsItem,
@@ -353,6 +355,28 @@ export default defineBackground(() => {
             sellerProfile,
           );
           return { ok: true, draft };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      })().then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'GENERATE_SEQUENCE') {
+      (async (): Promise<SequenceResponse> => {
+        try {
+          const { apiKey, model, sellerProfile } = await getSettings();
+          const sequence = await generateSequence(
+            apiKey,
+            model,
+            msg.company,
+            msg.persona,
+            msg.brief,
+            msg.detections,
+            msg.news,
+            msg.hiring,
+            sellerProfile,
+          );
+          return { ok: true, sequence };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
