@@ -23,7 +23,15 @@ import {
   parseDomainList,
   type BatchState,
 } from '../../lib/batch';
-import { getSettings } from '../../lib/settings';
+import { getSettings, type SellerProfile } from '../../lib/settings';
+import {
+  DEFAULT_WEIGHTS,
+  getScoringWeights,
+  saveScoringWeights,
+  scoreAccount,
+  type AccountScore,
+  type ScoringWeights,
+} from '../../lib/scoring';
 
 function download(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
@@ -37,9 +45,11 @@ function download(filename: string, content: string, type: string) {
 
 function AccountCard({
   account,
+  score,
   onChange,
 }: {
   account: AccountRecord;
+  score: AccountScore;
   onChange: () => Promise<void>;
 }) {
   const [notes, setNotesLocal] = useState(account.notes);
@@ -94,6 +104,22 @@ function AccountCard({
           </select>
         </label>
       </p>
+      <p>
+        <small>
+          <strong>Score {score.total}</strong>
+        </small>
+      </p>
+      {score.components.length > 0 && (
+        <ul>
+          {score.components.map((c) => (
+            <li key={c.label}>
+              <small>
+                {c.points > 0 ? `+${c.points}` : c.points} — {c.label}
+              </small>
+            </li>
+          ))}
+        </ul>
+      )}
       {account.brief && <p>{account.brief.overview}</p>}
       <p className="no-print">
         <textarea
@@ -304,14 +330,81 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
   );
 }
 
+
+const WEIGHT_LABELS: Record<keyof ScoringWeights, string> = {
+  competitorDetected: 'Competitor in use',
+  hiringActive: 'Hiring (any roles)',
+  hiringVolume: 'Hiring volume (10+ roles)',
+  hiringGrowth: 'Hiring growth between checks',
+  newsFresh: 'Fresh news (14 days)',
+  newsRecent: 'Recent news (45 days)',
+  newsStale: 'Stale news penalty (90+ days)',
+  stackDepth: 'Deep tech stack (8+)',
+  icpKeyword: 'ICP keyword match (each, max 2)',
+};
+
+function WeightsEditor({ onSaved }: { onSaved: () => Promise<void> }) {
+  const [weights, setWeights] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    void getScoringWeights().then(setWeights);
+  }, []);
+
+  async function save() {
+    await saveScoringWeights(weights);
+    await onSaved();
+  }
+
+  return (
+    <section>
+      <p className="no-print">
+        <button className="link" onClick={() => setOpen(!open)}>
+          {open ? 'Hide scoring weights' : 'Scoring weights'}
+        </button>
+      </p>
+      {open && (
+        <>
+          {(
+            Object.keys(WEIGHT_LABELS) as (keyof ScoringWeights)[]
+          ).map((k) => (
+            <p key={k}>
+              <label>
+                {WEIGHT_LABELS[k]}{' '}
+                <input
+                  type="number"
+                  value={weights[k]}
+                  style={{ width: '4em' }}
+                  onChange={(e) =>
+                    setWeights({ ...weights, [k]: Number(e.target.value) || 0 })
+                  }
+                />
+              </label>
+            </p>
+          ))}
+          <p className="no-print">
+            <button onClick={() => void save()}>Save weights</button>
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function AccountsView({ onBack }: { onBack: () => void }) {
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
+  const [profile, setProfile] = useState<SellerProfile | null>(null);
+  const [weights, setWeightsState] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
+  const [sort, setSort] = useState<'score' | 'recent'>('score');
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
     await migrateSavedBriefsIfNeeded(listSavedBriefs).catch(() => 0);
     setAccounts(await listAccounts());
+    const settings = await getSettings();
+    setProfile(settings.sellerProfile);
+    setWeightsState(await getScoringWeights());
   }, []);
 
   useEffect(() => {
@@ -381,9 +474,29 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
           <small>Import failed: {importError}</small>
         </p>
       )}
-      {accounts.map((account) => (
-        <AccountCard key={account.domain} account={account} onChange={reload} />
-      ))}
+      {accounts.length > 1 && (
+        <p className="no-print">
+          <label>
+            Sort{' '}
+            <select value={sort} onChange={(e) => setSort(e.target.value as 'score' | 'recent')}>
+              <option value="score">Score (work these first)</option>
+              <option value="recent">Recently updated</option>
+            </select>
+          </label>
+        </p>
+      )}
+      <WeightsEditor onSaved={reload} />
+      {accounts
+        .map((account) => ({
+          account,
+          score: scoreAccount(account, profile, weights, Date.now()),
+        }))
+        .sort((a, b) =>
+          sort === 'score' ? b.score.total - a.score.total : b.account.updatedAt - a.account.updatedAt,
+        )
+        .map(({ account, score }) => (
+          <AccountCard key={account.domain} account={account} score={score} onChange={reload} />
+        ))}
     </main>
   );
 }
