@@ -291,7 +291,7 @@ async function runWatchChecks(): Promise<void> {
     const prev = latestSnapshot(account);
     if (!prev) continue;
     try {
-      const { signals, detections, news, hiring } = await collectFromHtml(account.domain);
+      const { detections, news, hiring } = await collectFromHtml(account.domain);
       const next: SignalSnapshot = {
         takenAt: Date.now(),
         detections,
