@@ -11,6 +11,11 @@
 - **Recent news** — 3–5 headlines with dates and links via Google News RSS (swappable provider interface).
 - **Talking points** — 3–5 discovery questions/angles, each citing the finding it came from.
 - **Caching** — briefs cached per domain; Regenerate, Copy as Markdown, and print-friendly export.
+- **Account records** — briefs save as persistent account records (IndexedDB) with timestamped signal snapshots, a pipeline status, notes, and an outreach touch log.
+- **List intake & batch research** — paste or CSV a list of domains and research them in batch, with an upfront API cost estimate; batch snapshots from fetched HTML are labelled 'partial' detection.
+- **Account scoring** — deterministic score (ICP fit × signal strength/recency) with a visible per-point breakdown naming its evidence; no learned model.
+- **Personas & sequences** — a standard persona list plus personas suggested from hiring signals, and a drafted 3-touch sequence per persona (day 1 email, day 4 LinkedIn, day 9 email), each touch anchored on a different signal; you copy, send, and mark touches sent by hand.
+- **Watch & re-engage + Today view** — watched accounts are re-checked every 6 hours (only while Chrome is open) and snapshot changes surface as events and an icon badge, with the model called only when something changed; the Today home view brings together new signals, touches due, and the top accounts by score.
 
 ## Load unpacked in Chrome
 
@@ -24,7 +29,7 @@
 
 1. Right-click the extension icon → **Options** (step 5 adds this page).
 2. Paste your Anthropic API key. It's stored in `chrome.storage.local` on your machine only — never committed, never sent anywhere except `api.anthropic.com`.
-3. Pick a model (default: `claude-sonnet-4-20250514` — check step 5 for the current default).
+3. Pick a model (default: `claude-sonnet-4-5`).
 
 ## Permissions
 

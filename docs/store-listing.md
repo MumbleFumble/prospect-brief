@@ -25,6 +25,14 @@ Prospect Brief turns any company website into a one-page sales brief in seconds.
 - **Tech stack** — deterministic detection of ~40 technologies (frameworks, analytics, CMS, hosting, payments, auth, chat, marketing) with the evidence behind each call.
 - **Recent news** — latest headlines from Google News, so you walk in current.
 
+**Beyond the brief**
+
+- **Account records** — every brief saves as a persistent account record with timestamped signal snapshots, a pipeline status, notes, and an outreach touch log.
+- **List intake & batch research** — paste or import a list of domains and research them in batch, with an upfront API cost estimate; batch snapshots from fetched HTML are labelled as partial detection.
+- **Account scoring** — a deterministic score (ICP fit × signal strength/recency) with a visible per-point breakdown naming its evidence.
+- **Personas & sequences** — pick from a standard persona list or personas suggested from hiring signals, and get a drafted 3-touch sequence per persona (day 1 email, day 4 LinkedIn, day 9 email), each touch anchored on a different signal. Touches are drafted only — you copy, send, and mark them sent by hand.
+- **Watch & re-engage, in a Today view** — watched accounts are re-checked every 6 hours (only while Chrome is open); changes surface as events and an icon badge, and the model is only called when something changed. The Today home view brings together new signals, touches due, and your top accounts by score.
+
 **Privacy-first**
 
 - No backend server. No analytics. No tracking.
