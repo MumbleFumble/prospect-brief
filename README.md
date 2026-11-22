@@ -33,19 +33,23 @@
 
 ## Permissions
 
-| Permission                    | Why                                                                        |
-| ----------------------------- | -------------------------------------------------------------------------- |
-| `activeTab`                   | Read the current tab's URL/title when you click the icon.                  |
-| `scripting`                   | Run the signal-collection scripts on the page you asked about.             |
-| `sidePanel`                   | Render the brief UI in Chrome's side panel.                                |
-| `storage`                     | Store your API key, model choice, and cached briefs locally.               |
-| `webRequest`                  | Read response headers (server, CDN, framework hints) of the main document. |
-| `https://api.anthropic.com/*` | Send page signals + news to the LLM you configured.                        |
-| `https://news.google.com/*`   | Fetch recent headlines for the company.                                    |
+| Permission                    | Why                                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `activeTab`                   | Access the current tab when you click the toolbar icon.                                                  |
+| `alarms`                      | Resume batch research if the service worker dies (1-minute alarm) and re-check watched accounts every 6 hours. |
+| `scripting`                   | Run the signal-collection scripts on the page you asked about.                                           |
+| `sidePanel`                   | Render the brief UI in Chrome's side panel.                                                              |
+| `storage`                     | Store your settings, cached and saved briefs, batch queue state, and scoring weights in `chrome.storage.local`. |
+| `tabs`                        | Read the current tab's URL, and clean up captured headers when a tab closes.                             |
+| `unlimitedStorage`            | Let locally stored briefs and account snapshots grow past Chrome's default storage quota.                |
+| `webRequest`                  | Read response headers (server, CDN, framework hints) of the main document.                               |
+| `<all_urls>`                  | Collect signals from, and fetch, any company website you research (live page, batch, and watch checks).  |
+| `https://api.anthropic.com/*` | Send page signals + news to the LLM you configured.                                                      |
+| `https://news.google.com/*`   | Fetch recent headlines for the company.                                                                  |
 
 ## Privacy
 
-All page analysis runs locally in the extension. The only network calls are to Anthropic (your brief request) and Google News (headline search). No analytics, no tracking, no backend server, no data leaves your machine otherwise.
+All page analysis runs locally in the extension. The only network calls are to Anthropic (your brief request), Google News (headline search), public job-board APIs (Greenhouse, Lever, Ashby — hiring signals), and the prospect websites you research (page fetches for batch and watch checks). No analytics, no tracking, no backend server, no data leaves your machine otherwise.
 
 ## Architecture
 
