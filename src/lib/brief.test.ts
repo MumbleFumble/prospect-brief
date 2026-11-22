@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { BriefSchema, buildPrompt } from './brief';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  BriefSchema,
+  buildPrompt,
+  generateBrief,
+  generateBriefWithSignals,
+  validateBriefResponse,
+} from './brief';
 import type { PageSignals } from './types';
 
 describe('BriefSchema', () => {
@@ -29,6 +35,180 @@ describe('BriefSchema', () => {
     expect(() =>
       BriefSchema.parse({ overview: 'x', talkingPoints: [{ point: 'x', sourceRefs: [1.5] }] }),
     ).toThrow();
+  });
+});
+
+describe('validateBriefResponse', () => {
+  const validRaw = JSON.stringify({
+    overview: 'Acme builds payments infrastructure.',
+    overviewRefs: [0],
+    talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+  });
+
+  it('passes a valid response, with the parsed brief and no failures', () => {
+    const result = validateBriefResponse(validRaw);
+    expect(result.valid).toBe(true);
+    expect(result.failures).toEqual([]);
+    expect(result.brief?.overview).toContain('Acme');
+  });
+
+  it('fails invalid JSON with the invalid-json reason', () => {
+    const result = validateBriefResponse('not json at all');
+    expect(result.valid).toBe(false);
+    expect(result.failures).toEqual(['invalid-json']);
+  });
+
+  it('fails a non-object response with the not-an-object reason', () => {
+    expect(validateBriefResponse('[1,2]').failures).toEqual(['not-an-object']);
+  });
+
+  it('fails a missing overview with the missing-overview reason', () => {
+    const raw = JSON.stringify({ talkingPoints: [{ point: 'x', sourceRefs: [] }] });
+    expect(validateBriefResponse(raw).failures).toEqual(['missing-overview']);
+  });
+
+  it('fails an empty overview with the empty-overview reason', () => {
+    const raw = JSON.stringify({
+      overview: '',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(validateBriefResponse(raw).failures).toEqual(['empty-overview']);
+  });
+
+  it('fails a wrong-type overview with the overview-wrong-type reason', () => {
+    const raw = JSON.stringify({
+      overview: 42,
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(validateBriefResponse(raw).failures).toEqual(['overview-wrong-type']);
+  });
+
+  it('fails missing talking points with the missing-talking-points reason', () => {
+    const raw = JSON.stringify({ overview: 'x' });
+    expect(validateBriefResponse(raw).failures).toEqual(['missing-talking-points']);
+  });
+
+  it('fails empty talking points with the empty-talking-points reason', () => {
+    const raw = JSON.stringify({ overview: 'x', talkingPoints: [] });
+    expect(validateBriefResponse(raw).failures).toEqual(['empty-talking-points']);
+  });
+
+  it('fails an unresolved refs shape in overviewRefs with its named reason', () => {
+    const raw = JSON.stringify({
+      overview: 'x',
+      overviewRefs: [1.5],
+      talkingPoints: [{ point: 'x', sourceRefs: [0] }],
+    });
+    expect(validateBriefResponse(raw).failures).toEqual(['invalid-ref-shape:overviewRefs']);
+  });
+
+  it('fails an unresolved refs shape in sourceRefs with its named reason', () => {
+    const raw = JSON.stringify({
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [-1] }],
+    });
+    expect(validateBriefResponse(raw).failures).toEqual(['invalid-ref-shape:sourceRefs']);
+  });
+});
+
+describe('generateBriefWithSignals', () => {
+  const signals: PageSignals = {
+    dom: {
+      url: 'https://example.com/',
+      title: 'Example',
+      metaDescription: null,
+      generator: null,
+      visibleText: 'We sell widgets.',
+      ogTags: {},
+      scriptSrcs: [],
+      linkHrefs: [],
+      cookieNames: [],
+    },
+    mainWorld: null,
+    collectedAt: 0,
+  };
+
+  const validText = JSON.stringify({
+    overview: 'Example sells widgets.',
+    overviewRefs: [0],
+    talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0] }],
+  });
+
+  function mockAnthropic(responses: Array<{ text: string; stopReason?: string | null }>) {
+    const fetchFn = vi.fn(async () => {
+      const next = responses.shift();
+      if (!next) throw new Error('mock exhausted');
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: next.text }],
+          stop_reason: next.stopReason ?? 'end_turn',
+        }),
+        text: async () => '',
+      };
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    return fetchFn;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces stop_reason and a valid validation result on success', async () => {
+    mockAnthropic([{ text: validText, stopReason: 'end_turn' }]);
+    const result = await generateBriefWithSignals('key', 'model', signals, [], []);
+    expect(result.brief.overview).toContain('Example sells widgets');
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.validation.valid).toBe(true);
+    expect(result.validation.failures).toEqual([]);
+  });
+
+  it('surfaces a max_tokens stop_reason unchanged, brief still returned', async () => {
+    mockAnthropic([{ text: validText, stopReason: 'max_tokens' }]);
+    const result = await generateBriefWithSignals('key', 'model', signals, [], []);
+    expect(result.stopReason).toBe('max_tokens');
+    expect(result.brief.overview).toContain('Example sells widgets');
+  });
+
+  it('retries once on a schema-invalid response, then succeeds (behaviour unchanged)', async () => {
+    const fetchFn = mockAnthropic([
+      { text: JSON.stringify({ overview: 'x', talkingPoints: [] }) },
+      { text: validText },
+    ]);
+    const result = await generateBriefWithSignals('key', 'model', signals, [], []);
+    expect(result.brief.overview).toContain('Example sells widgets');
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws after two schema-invalid responses, naming the failure reason', async () => {
+    mockAnthropic([
+      { text: JSON.stringify({ overview: 'x', talkingPoints: [] }) },
+      { text: JSON.stringify({ overview: 'x', talkingPoints: [] }) },
+    ]);
+    await expect(generateBriefWithSignals('key', 'model', signals, [], [])).rejects.toThrow(
+      'empty-talking-points',
+    );
+  });
+
+  it('leaves the thrown/network error path unchanged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+    await expect(generateBriefWithSignals('key', 'model', signals, [], [])).rejects.toThrow(
+      'Failed to fetch',
+    );
+    await expect(generateBrief('key', 'model', signals, [], [])).rejects.toThrow('Failed to fetch');
+  });
+
+  it('generateBrief still returns just the brief for successful runs', async () => {
+    mockAnthropic([{ text: validText }]);
+    const brief = await generateBrief('key', 'model', signals, [], []);
+    expect(brief.overview).toContain('Example sells widgets');
+    expect(brief.talkingPoints).toHaveLength(1);
   });
 });
 

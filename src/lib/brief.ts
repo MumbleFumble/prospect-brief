@@ -132,7 +132,128 @@ Respond with ONLY a JSON object matching this shape:
 }`;
 }
 
-async function callAnthropic(apiKey: string, model: string, prompt: string): Promise<string> {
+/* ------------------------------------------------------------------ */
+/* Schema validation (v0.4 step 2)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Result of validating one raw model response against the Brief
+ * schema. `failures` holds stable, named reason codes (not Zod's
+ * prose), so callers and tests can check exactly what went wrong.
+ */
+export interface BriefValidationResult {
+  valid: boolean;
+  /** The parsed brief when valid; null otherwise. */
+  brief: Brief | null;
+  /** Named failure reasons, in check order, de-duplicated. */
+  failures: string[];
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRefArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((ref) => typeof ref === 'number' && Number.isInteger(ref) && ref >= 0)
+  );
+}
+
+/**
+ * Validate a raw brief response (the model's text) against
+ * BriefSchema, naming each failure mode. Pure: no I/O. The named
+ * reasons cover the brief's own fields first (missing/empty/wrong
+ * type, ref shape); anything the schema still rejects falls back to
+ * `schema:<path>:<zod code>`.
+ */
+export function validateBriefResponse(raw: string): BriefValidationResult {
+  // Strip markdown code fences if the model wrapped the JSON.
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return { valid: false, brief: null, failures: ['invalid-json'] };
+  }
+
+  if (!isPlainObject(parsed)) {
+    return { valid: false, brief: null, failures: ['not-an-object'] };
+  }
+
+  const failures: string[] = [];
+  const push = (reason: string) => {
+    if (!failures.includes(reason)) failures.push(reason);
+  };
+
+  if (parsed.overview === undefined) push('missing-overview');
+  else if (typeof parsed.overview !== 'string') push('overview-wrong-type');
+  else if (parsed.overview.length === 0) push('empty-overview');
+
+  if (parsed.overviewRefs !== undefined && !isRefArray(parsed.overviewRefs)) {
+    push('invalid-ref-shape:overviewRefs');
+  }
+
+  if (parsed.talkingPoints === undefined) push('missing-talking-points');
+  else if (!Array.isArray(parsed.talkingPoints)) push('talking-points-wrong-type');
+  else {
+    if (parsed.talkingPoints.length === 0) push('empty-talking-points');
+    if (parsed.talkingPoints.length > 8) push('too-many-talking-points');
+    for (const point of parsed.talkingPoints) {
+      if (!isPlainObject(point)) {
+        push('talking-point-wrong-type');
+        continue;
+      }
+      if (point.point === undefined) push('missing-talking-point-text');
+      else if (typeof point.point !== 'string') push('talking-point-text-wrong-type');
+      else if (point.point.length === 0) push('empty-talking-point-text');
+      if (point.sourceRefs === undefined) push('missing-source-refs');
+      else if (!isRefArray(point.sourceRefs)) push('invalid-ref-shape:sourceRefs');
+      if (point.stackRefs !== undefined && !isRefArray(point.stackRefs)) {
+        push('invalid-ref-shape:stackRefs');
+      }
+    }
+  }
+
+  if (failures.length > 0) return { valid: false, brief: null, failures };
+
+  const result = BriefSchema.safeParse(parsed);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      push(`schema:${issue.path.join('.') || 'root'}:${issue.code}`);
+    }
+    return { valid: false, brief: null, failures };
+  }
+  return { valid: true, brief: result.data, failures: [] };
+}
+
+/**
+ * One generation run's observable signals (v0.4 step 2): the brief,
+ * the Anthropic stop_reason of the response that produced it, and
+ * that response's schema-validation result — the inputs
+ * classifyRunOutcome (run-outcome.ts) needs, surfaced instead of
+ * discarded.
+ */
+export interface BriefGeneration {
+  brief: Brief;
+  stopReason: string | null;
+  validation: BriefValidationResult;
+}
+
+interface AnthropicResponse {
+  text: string;
+  stopReason: string | null;
+}
+
+async function callAnthropic(
+  apiKey: string,
+  model: string,
+  prompt: string,
+): Promise<AnthropicResponse> {
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
     headers: {
@@ -153,19 +274,44 @@ async function callAnthropic(apiKey: string, model: string, prompt: string): Pro
   }
   const data = (await res.json()) as {
     content?: Array<{ type?: string; text?: string }>;
+    stop_reason?: string | null;
   };
   const text = data.content?.find((b) => b.type === 'text')?.text;
   if (!text) throw new Error('Anthropic returned no text content.');
-  return text;
+  return { text, stopReason: data.stop_reason ?? null };
 }
 
-function parseBrief(raw: string): Brief {
-  // Strip markdown code fences if the model wrapped the JSON.
-  const cleaned = raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-  return BriefSchema.parse(JSON.parse(cleaned));
+/**
+ * Generate the structured brief, surfacing the run signals.
+ * Retries once if the model returns invalid JSON or fails schema
+ * validation — the same retry behaviour generateBrief has always
+ * had; only the return shape is richer.
+ */
+export async function generateBriefWithSignals(
+  apiKey: string,
+  model: string,
+  signals: PageSignals,
+  detections: Detection[],
+  news: NewsItem[],
+  seller: SellerProfile | null = null,
+  hiring: HiringSignals | null = null,
+): Promise<BriefGeneration> {
+  if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
+  const prompt = buildPrompt(signals, detections, news, seller, hiring);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { text, stopReason } = await callAnthropic(apiKey, model, prompt);
+      const validation = validateBriefResponse(text);
+      if (!validation.valid || !validation.brief) {
+        throw new Error(`Invalid brief response: ${validation.failures.join(', ')}`);
+      }
+      return { brief: validation.brief, stopReason, validation };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 /**
@@ -181,16 +327,14 @@ export async function generateBrief(
   seller: SellerProfile | null = null,
   hiring: HiringSignals | null = null,
 ): Promise<Brief> {
-  if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
-  const prompt = buildPrompt(signals, detections, news, seller, hiring);
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const raw = await callAnthropic(apiKey, model, prompt);
-      return parseBrief(raw);
-    } catch (e) {
-      lastError = e;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  const { brief } = await generateBriefWithSignals(
+    apiKey,
+    model,
+    signals,
+    detections,
+    news,
+    seller,
+    hiring,
+  );
+  return brief;
 }
