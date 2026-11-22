@@ -37,8 +37,8 @@ Prospect Brief turns any company website into a one-page sales brief in seconds.
 
 - No backend server. No analytics. No tracking.
 - Your Anthropic API key stays in your browser (chrome.storage.local) and is only sent to api.anthropic.com.
-- Page analysis runs locally; only the page signals you see are sent to the LLM.
-- Briefs are cached per-domain for 24 hours to save API calls — clear anytime with Regenerate.
+- Everything is stored locally, on your device: your settings and seller profile, cached briefs (24 hours), saved briefs, account records in IndexedDB (signal snapshots, notes, and outreach touches), batch queue state, and scoring weights.
+- Page analysis runs locally. The only network calls are to Anthropic (brief, outreach, and sequence generation — page signals, headlines, hiring signals, and your seller profile if you set one), Google News (headline search), the public Greenhouse / Lever / Ashby job-board APIs (hiring signals, using the board identifier from the company's own site), and the prospect websites you research (their homepage HTML, fetched for batch research and watch re-checks).
 
 **Export**
 
@@ -67,10 +67,14 @@ See `public/icons/` (16/32/48/128 PNG).
 
 ## Permissions justification
 
-- `activeTab` + `scripting` + `<all_urls>` — read the current page's title, meta tags, scripts, and text to build the brief. Only runs when you click the icon; no background access.
-- `tabs` — read the current tab's URL so the brief knows which site it's analyzing.
-- `sidePanel` — display the brief.
-- `storage` — save your API key, model choice, and cached briefs locally.
+- `activeTab` — access the current tab when you click the toolbar icon.
+- `alarms` — resume batch research if Chrome kills the service worker (1-minute alarm), and re-check watched accounts every 6 hours.
+- `scripting` — run the signal-collection scripts on the page you asked about.
+- `sidePanel` — display the brief in Chrome's side panel.
+- `storage` — save your API key, model choice, seller profile, cached and saved briefs, batch queue state, scoring weights, and a one-time migration flag in chrome.storage.local.
+- `tabs` — read the current tab's URL so the brief knows which site it's analyzing, and clean up captured headers when a tab closes.
+- `unlimitedStorage` — let locally stored briefs and account snapshots grow past Chrome's default storage quota.
 - `webRequest` — read main-frame response headers (e.g. server, x-powered-by) for tech detection.
+- `<all_urls>` — collect signals from, and fetch, any company website you research. This covers the page you click on, and also background access you set up yourself: batch research over a list of domains and the 6-hourly re-checks of accounts you chose to watch. It is not click-only.
 - Host `https://api.anthropic.com/*` — send page signals to Claude for the overview and talking points.
 - Host `https://news.google.com/*` — fetch recent headlines via Google News RSS.

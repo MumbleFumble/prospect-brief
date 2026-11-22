@@ -11,32 +11,39 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
 </head>
 <body>
 <h1>Privacy Policy — Prospect Brief</h1>
-<p><strong>Last updated:</strong> October 12, 2026</p>
+<p><strong>Last updated:</strong> November 22, 2026</p>
 <p>Prospect Brief is a Chrome extension that generates one-page sales briefs for company websites. This policy explains what data the extension handles and how.</p>
 
 <h2>Data stored locally</h2>
+<p>All of the following stays on your device, in your browser's storage for this extension:</p>
 <ul>
-<li><strong>Anthropic API key and model choice.</strong> Stored in <code>chrome.storage.local</code> on your device when you enter them in the extension's Options page. The key is never hardcoded, never committed to source code, and never sent anywhere except <code>api.anthropic.com</code>.</li>
-<li><strong>Cached briefs.</strong> Completed briefs are cached per-domain in <code>chrome.storage.local</code> for 24 hours to avoid repeat API calls. You can clear a domain's cache anytime with the Regenerate button.</li>
+<li><strong>Anthropic API key, model choice, and seller profile.</strong> Stored in <code>chrome.storage.local</code> when you enter them in the extension's Options page (settings keys <code>apiKey</code>, <code>model</code>, <code>sellerProfile</code>). The seller profile is the text you enter about what you sell, your ideal customer, your value props, and competitor names. The API key is never hardcoded, never committed to source code, and never sent anywhere except <code>api.anthropic.com</code>.</li>
+<li><strong>Cached briefs.</strong> Completed briefs are cached per-domain in <code>chrome.storage.local</code> (key <code>brief:&lt;domain&gt;</code>, including the brief, the collected page signals, detections, news, and hiring signals) for 24 hours to avoid repeat API calls. A stale entry is removed the next time it is read. You can clear a domain's cache anytime with the Regenerate button.</li>
+<li><strong>Saved briefs.</strong> Every generated brief is also saved to a history list in <code>chrome.storage.local</code> (key <code>saved:briefs</code>). Saved briefs do not expire; the list is capped at the 100 most recent (one per domain). You can delete individual saved briefs or clear the list.</li>
+<li><strong>Account records.</strong> Briefs and research are kept as account records in an IndexedDB database named <code>prospect-brief</code> (object store <code>accounts</code>, keyed by domain). Each record holds the latest brief, timestamped signal snapshots (detections, news, and hiring signals; capped at the 10 most recent per account), a pipeline status, any notes you write, a log of outreach touches you draft or mark sent, and — for watched accounts — the watch state and change events. Account records persist until you delete the account or uninstall the extension. A one-time migration flag (<code>accounts:migrated:v1</code> in <code>chrome.storage.local</code>) records that your pre-v0.3 saved briefs were converted into account records; the old saved-briefs list is left in place.</li>
+<li><strong>Batch queue state.</strong> If you start batch research, the queue (the domains, their per-item status, and a processor heartbeat) is stored in <code>chrome.storage.local</code> (key <code>batch:state</code>) so an interrupted batch can resume.</li>
+<li><strong>Scoring weights.</strong> If you adjust the account-scoring weights, your weights are stored in <code>chrome.storage.local</code> (key <code>scoringWeights</code>).</li>
 </ul>
+<p>You can also export your account records to a JSON file from the extension. That file is created only when you choose to export, and it goes only where you save it.</p>
 
 <h2>Data sent over the network</h2>
-<p>When you click the Prospect Brief icon on a company website:</p>
 <ol>
-<li><strong>Page signals</strong> (page title, meta tags, visible text, script URLs, detected tech stack, cookie names — never cookie values) are sent to <code>api.anthropic.com</code> along with your API key, so Claude can generate the overview and talking points. This is governed by Anthropic's privacy policy.</li>
-<li><strong>A company name derived from the page</strong> (e.g. from the site title or domain) is sent to <code>news.google.com</code> to fetch recent headlines via Google News RSS.</li>
+<li><strong>Anthropic (<code>api.anthropic.com</code>).</strong> Page signals (page title, meta tags, visible text, script URLs, detected tech stack, cookie names — never cookie values), recent headlines, and hiring signals are sent along with your API key, so Claude can generate the overview and talking points. If you have filled in a seller profile, that text is included in the prompt so the output can be framed around what you sell. The same applies when you draft an outreach email or a follow-up sequence. This is governed by Anthropic's privacy policy.</li>
+<li><strong>Google News (<code>news.google.com</code>).</strong> A company name derived from the page (e.g. from the site title or domain) is sent to fetch recent headlines via Google News RSS.</li>
+<li><strong>Job-board APIs (Greenhouse, Lever, Ashby).</strong> If a company's site links to a public job board on one of these services, the board identifier taken from that link is sent to that service's public API (<code>boards-api.greenhouse.io</code>, <code>api.lever.co</code>, or <code>api.ashbyhq.com</code>) to fetch its open roles as hiring signals.</li>
+<li><strong>Prospect websites.</strong> For batch research and for the periodic re-checks of watched accounts, the extension fetches the prospect site's own homepage HTML directly. Nothing about you is sent in those requests beyond the fetch itself.</li>
 </ol>
-<p>No data is sent to any other third party. There is no backend server operated by the extension author.</p>
+<p>There is no backend server operated by the extension author.</p>
 
 <h2>What we don't do</h2>
 <ul>
 <li>No analytics, telemetry, or user tracking of any kind.</li>
 <li>No advertising.</li>
-<li>We do not sell, share, or disclose your data to anyone except as described above.</li>
+<li>We do not sell, share, or disclose your data to anyone except as described above (Anthropic for brief generation, Google News for headlines, and the job-board APIs for hiring signals).</li>
 </ul>
 
 <h2>Data retention</h2>
-<p>Cached briefs expire automatically after 24 hours. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.</p>
+<p>Cached briefs expire automatically after 24 hours. Saved briefs persist until you delete them or clear the list (capped at 100). Account records, your settings and seller profile, scoring weights, and batch queue state persist until you delete or change them. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.</p>
 
 <h2>Contact</h2>
 <p>For questions about this policy, open an issue at <a href="https://github.com/MumbleFumble/prospect-brief">github.com/MumbleFumble/prospect-brief</a>.</p>
