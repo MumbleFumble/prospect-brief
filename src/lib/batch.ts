@@ -1,4 +1,6 @@
 import type { PageSignals } from './types';
+import type { BriefGeneration } from './brief';
+import { classifyRunOutcome, type RunOutcome } from './run-outcome';
 
 /**
  * List intake & batch research (v0.3 element 2).
@@ -158,13 +160,53 @@ export function estimateBatchCost(count: number, model: string): CostEstimate {
 /* Queue state                                                         */
 /* ------------------------------------------------------------------ */
 
-export type BatchItemStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+export type BatchItemStatus = 'queued' | 'running' | 'done' | 'partial' | 'error' | 'cancelled';
 
 export interface BatchItem {
   domain: string;
   status: BatchItemStatus;
   error?: string;
+  /** The run outcome behind the final status (v0.4 step 3), when classified. */
+  outcome?: RunOutcome;
   finishedAt?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Run outcomes for batch generations (v0.4 step 3)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Classify one batch generation from its REAL signals — the
+ * stop_reason and schema-validation result surfaced by
+ * generateBriefWithSignals (inc-008), fed straight into the inc-007
+ * classifier. No defaults are substituted: a max_tokens stop comes
+ * back partial/'max-tokens', a clean end_turn with a valid schema
+ * comes back ok/'success'.
+ */
+export function classifyBatchGeneration(
+  generation: BriefGeneration,
+  newsCount: number,
+): RunOutcome {
+  return classifyRunOutcome({
+    schemaValid: generation.validation.valid,
+    stopReason: generation.stopReason,
+    brief: generation.brief,
+    newsCount,
+  });
+}
+
+/** Map a run outcome onto the batch item status that reports it. */
+export function batchStatusForOutcome(outcome: RunOutcome): BatchItemStatus {
+  switch (outcome.status) {
+    case 'ok':
+      return 'done';
+    case 'partial':
+      return 'partial';
+    case 'skipped':
+      return 'cancelled';
+    case 'failed':
+      return 'error';
+  }
 }
 
 export interface BatchState {
@@ -189,16 +231,18 @@ export async function setBatchState(state: BatchState): Promise<void> {
 export function batchProgress(state: BatchState): {
   total: number;
   done: number;
+  partial: number;
   errors: number;
   remaining: number;
   active: boolean;
 } {
   const done = state.items.filter((i) => i.status === 'done').length;
+  const partial = state.items.filter((i) => i.status === 'partial').length;
   const errors = state.items.filter((i) => i.status === 'error').length;
   const remaining = state.items.filter(
     (i) => i.status === 'queued' || i.status === 'running',
   ).length;
-  return { total: state.items.length, done, errors, remaining, active: remaining > 0 };
+  return { total: state.items.length, done, partial, errors, remaining, active: remaining > 0 };
 }
 
 export const MAX_BATCH = 50;

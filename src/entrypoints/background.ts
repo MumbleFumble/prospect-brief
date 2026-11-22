@@ -17,12 +17,15 @@ import { diffSnapshots, pendingWatchEvents } from '../lib/watch';
 import {
   MAX_BATCH,
   batchProgress,
+  batchStatusForOutcome,
+  classifyBatchGeneration,
   getBatchState,
   setBatchState,
   signalsFromHtml,
   type BatchState,
 } from '../lib/batch';
-import { generateBrief } from '../lib/brief';
+import { generateBrief, generateBriefWithSignals } from '../lib/brief';
+import { classifyRunOutcome, type RunOutcome } from '../lib/run-outcome';
 import { generateOutreach } from '../lib/outreach';
 import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
@@ -172,14 +175,29 @@ async function collectFromHtml(domain: string) {
   return { signals, detections, company, news, hiring };
 }
 
-/** Research one domain from fetched HTML and store the account + brief. */
-async function researchDomain(domain: string): Promise<void> {
+/**
+ * Research one domain from fetched HTML and store the account + brief.
+ * Returns the run outcome classified from the generation's real
+ * signals (v0.4 step 3): a max_tokens generation still stores its
+ * brief, but comes back partial — never a silent success.
+ */
+async function researchDomain(domain: string): Promise<RunOutcome> {
   const { apiKey, model, sellerProfile } = await getSettings();
   if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
 
   const { signals, detections, company, news, hiring } = await collectFromHtml(domain);
 
-  const brief = await generateBrief(apiKey, model, signals, detections, news, sellerProfile, hiring);
+  const generation = await generateBriefWithSignals(
+    apiKey,
+    model,
+    signals,
+    detections,
+    news,
+    sellerProfile,
+    hiring,
+  );
+  const brief = generation.brief;
+  const outcome = classifyBatchGeneration(generation, news.length);
 
   await setCachedBrief({ domain, brief, signals, detections, news, hiring }).catch(() => {});
   await saveBrief({
@@ -209,6 +227,7 @@ async function researchDomain(domain: string): Promise<void> {
       ),
     Date.now(),
   );
+  return outcome;
 }
 
 async function processBatch(): Promise<void> {
@@ -232,11 +251,14 @@ async function processBatch(): Promise<void> {
       state.heartbeat = Date.now();
       await setBatchState(state);
       try {
-        await researchDomain(next.domain);
-        next.status = 'done';
+        const outcome = await researchDomain(next.domain);
+        next.outcome = outcome;
+        next.status = batchStatusForOutcome(outcome);
+        if (next.status === 'error') next.error = outcome.detail;
       } catch (e) {
         next.status = 'error';
         next.error = e instanceof Error ? e.message : String(e);
+        next.outcome = classifyRunOutcome({ error: e });
       }
       next.finishedAt = Date.now();
       state.heartbeat = Date.now();

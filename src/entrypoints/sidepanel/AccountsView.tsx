@@ -346,7 +346,7 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
     };
     if (res.ok) {
       setState(res.state);
-      const done = res.state ? batchProgress(res.state).done : 0;
+      const done = res.state ? batchProgress(res.state).done + batchProgress(res.state).partial : 0;
       if (done !== lastDone.current) {
         lastDone.current = done;
         await onBatchDone();
@@ -444,8 +444,8 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
         <>
           <p>
             <small>
-              Batch: {progress.done} done · {progress.errors} failed · {progress.remaining}{' '}
-              remaining of {progress.total}
+              Batch: {progress.done} done · {progress.partial} partial · {progress.errors} failed
+              · {progress.remaining} remaining of {progress.total}
               {progress.active ? ' · running…' : ' · finished'}
             </small>{' '}
             {progress.active && (
