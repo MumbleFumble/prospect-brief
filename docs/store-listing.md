@@ -55,10 +55,11 @@ Productivity
 
 ## Screenshots (1280×800)
 
-1. Side panel showing a completed brief (overview + talking points).
-2. Tech stack section with confidence badges and evidence.
-3. Recent news headlines.
-4. Options page with API key field.
+1. `store-shots/shot1-brief.png` — Side panel showing a completed brief (overview + talking points).
+2. `store-shots/shot2-stack.png` — Tech stack section with confidence badges and evidence.
+3. `store-shots/shot3-export.png` — Export view.
+
+Not yet captured: an options page screenshot (no file in `store-shots/`).
 
 ## Icon
 

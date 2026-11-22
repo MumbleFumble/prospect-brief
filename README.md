@@ -2,7 +2,7 @@
 
 **Prospect Brief** is a Chrome extension (Manifest V3) for sales engineers and forward deployed engineers. When you're on any company's website, click the toolbar icon and it generates a one-page account brief: a company overview, the detected tech stack, recent news headlines, and suggested discovery talking points — the kind of prep you'd do before a customer call, in seconds instead of an hour.
 
-![Screenshot placeholder](docs/screenshot-placeholder.png)
+![Side panel showing a completed brief](store-shots/shot1-brief.png)
 
 ## Features
 
