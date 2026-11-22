@@ -1,4 +1,5 @@
 import type { Brief } from './brief';
+import { ACCOUNTS_STORE, dbTx } from './db';
 import type { Detection, NewsItem } from './types';
 import type { HiringSignals } from './hiring';
 import type { SavedBrief } from './saved';
@@ -210,39 +211,13 @@ export function parseAccountsImport(json: string): AccountRecord[] {
 /* IndexedDB persistence (thin wrapper, no dependency)                 */
 /* ------------------------------------------------------------------ */
 
-const DB_NAME = 'prospect-brief';
-const DB_VERSION = 1;
-const STORE = 'accounts';
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: 'domain' });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+const STORE = ACCOUNTS_STORE;
 
 function tx<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = run(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
-        t.onerror = () => reject(t.error);
-      }),
-  );
+  return dbTx(STORE, mode, run);
 }
 
 export async function getAccount(domain: string): Promise<AccountRecord | null> {

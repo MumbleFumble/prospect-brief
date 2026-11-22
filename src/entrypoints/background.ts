@@ -26,6 +26,7 @@ import {
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
 import { classifyRunOutcome, type RunOutcome } from '../lib/run-outcome';
+import { recordRun } from '../lib/runs';
 import { generateOutreach } from '../lib/outreach';
 import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
@@ -261,6 +262,12 @@ async function processBatch(): Promise<void> {
         next.outcome = classifyRunOutcome({ error: e });
       }
       next.finishedAt = Date.now();
+      // Persist the run history (v0.4 step 4) for ok, partial, and
+      // failed items alike. Best-effort by design: a recording
+      // failure must never break the batch, so errors are swallowed.
+      if (next.outcome) {
+        await recordRun(next.domain, next.outcome, next.finishedAt).catch(() => {});
+      }
       state.heartbeat = Date.now();
       await setBatchState(state);
     }
