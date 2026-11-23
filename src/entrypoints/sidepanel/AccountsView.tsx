@@ -30,6 +30,7 @@ import {
   type BatchState,
 } from '../../lib/batch';
 import { getSettings, type SellerProfile } from '../../lib/settings';
+import type { BatchRunSummary } from '../../lib/runs';
 import {
   DEFAULT_WEIGHTS,
   getScoringWeights,
@@ -331,6 +332,7 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
   const [text, setText] = useState('');
   const [model, setModel] = useState('claude-sonnet-4-5');
   const [state, setState] = useState<BatchState | null>(null);
+  const [summary, setSummary] = useState<BatchRunSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const csvRef = useRef<HTMLInputElement>(null);
   const lastDone = useRef(0);
@@ -338,6 +340,14 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
   const domains = parseDomainList(text).slice(0, MAX_BATCH);
   const estimate = estimateBatchCost(domains.length, model);
   const progress = state ? batchProgress(state) : null;
+
+  const loadSummary = useCallback(async () => {
+    const res = (await chrome.runtime.sendMessage({ type: 'GET_RUN_SUMMARY' })) as {
+      ok: boolean;
+      summary: BatchRunSummary | null;
+    };
+    if (res.ok) setSummary(res.summary);
+  }, []);
 
   const poll = useCallback(async () => {
     const res = (await chrome.runtime.sendMessage({ type: 'GET_BATCH_STATE' })) as {
@@ -351,8 +361,11 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
         lastDone.current = done;
         await onBatchDone();
       }
+      // No live batch (never started, or finished and its state was
+      // removed on completion): the durable run summary is what shows.
+      if (!res.state) await loadSummary();
     }
-  }, [onBatchDone]);
+  }, [onBatchDone, loadSummary]);
 
   useEffect(() => {
     void getSettings().then((s) => setModel(s.model));
@@ -382,6 +395,20 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
   async function cancel() {
     await chrome.runtime.sendMessage({ type: 'CANCEL_BATCH' });
     await poll();
+  }
+
+  async function retry() {
+    setError(null);
+    const res = (await chrome.runtime.sendMessage({ type: 'RETRY_BATCH' })) as {
+      ok: boolean;
+      error?: string;
+      state?: BatchState;
+    };
+    if (!res.ok) setError(res.error ?? 'Could not start the retry.');
+    else {
+      setState(res.state ?? null);
+      setSummary(null);
+    }
   }
 
   return (
@@ -465,6 +492,32 @@ function BatchSection({ onBatchDone }: { onBatchDone: () => Promise<void> }) {
                     </small>
                   </li>
                 ))}
+            </ul>
+          )}
+        </>
+      )}
+      {summary && !progress?.active && (
+        <>
+          <p>
+            <small>
+              Last batch: {summary.ok} ok · {summary.partial} partial · {summary.failed} failed
+              {summary.skipped > 0 ? ` · ${summary.skipped} skipped` : ''} of {summary.total}
+            </small>{' '}
+            {summary.retryDomains.length > 0 && (
+              <button className="link no-print" onClick={() => void retry()}>
+                Retry {summary.retryDomains.length} partial/failed
+              </button>
+            )}
+          </p>
+          {summary.issues.length > 0 && (
+            <ul>
+              {summary.issues.map((r) => (
+                <li key={r.id}>
+                  <small>
+                    {r.domain}: {r.outcome.status} — {r.outcome.detail}
+                  </small>
+                </li>
+              ))}
             </ul>
           )}
         </>

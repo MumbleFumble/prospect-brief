@@ -27,7 +27,7 @@ import {
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
 import { type RunOutcome } from '../lib/run-outcome';
-import { listRunsForDomain, recordRun } from '../lib/runs';
+import { getLatestBatchSummary, listRunsForDomain, recordRun } from '../lib/runs';
 import { generateOutreach } from '../lib/outreach';
 import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
@@ -476,6 +476,29 @@ export default defineBackground(() => {
     }
     if (msg.type === 'GET_BATCH_STATE') {
       getBatchState().then((state) => sendResponse({ ok: true, state }));
+      return true;
+    }
+    if (msg.type === 'GET_RUN_SUMMARY') {
+      getLatestBatchSummary()
+        .then((summary) => sendResponse({ ok: true, summary }))
+        .catch(() => sendResponse({ ok: true, summary: null }));
+      return true;
+    }
+    if (msg.type === 'RETRY_BATCH') {
+      (async () => {
+        const summary = await getLatestBatchSummary().catch(() => null);
+        const domains = summary?.retryDomains ?? [];
+        if (domains.length === 0) {
+          sendResponse({ ok: false, error: 'Nothing to retry — the last batch had no partial or failed domains.' });
+          return;
+        }
+        try {
+          const state = await startBatch(domains);
+          sendResponse({ ok: true, state });
+        } catch (e) {
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      })();
       return true;
     }
     if (msg.type === 'REFRESH_WATCH_BADGE') {

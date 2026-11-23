@@ -1,7 +1,14 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DB_NAME, openDb } from './db';
-import { listRuns, listRunsForDomain, recordRun } from './runs';
+import {
+  getLatestBatchSummary,
+  listRuns,
+  listRunsForDomain,
+  recordRun,
+  summarizeBatchRuns,
+  type RunRecord,
+} from './runs';
 import { emptyAccount, getAccount, putAccount } from './accounts';
 import type { RunOutcome } from './run-outcome';
 
@@ -96,6 +103,64 @@ describe('runs store CRUD', () => {
     const b = await recordRun('a.com', okOutcome, 1_000);
     expect(a.id).not.toBe(b.id);
     expect(await listRuns()).toHaveLength(2);
+  });
+});
+
+describe('batch run summary', () => {
+  function record(id: string, domain: string, outcome: RunOutcome, finishedAt: number, batchId: string): RunRecord {
+    return { id, domain, outcome, finishedAt, batchId };
+  }
+
+  it('summarizeBatchRuns counts a mixed batch exactly and derives the retry set', () => {
+    const summary = summarizeBatchRuns([
+      record('1', 'a.com', okOutcome, 100, 'batch-1'),
+      record('2', 'b.com', partialOutcome, 200, 'batch-1'),
+      record('3', 'c.com', failedOutcome, 300, 'batch-1'),
+      record('4', 'd.com', okOutcome, 400, 'batch-1'),
+    ]);
+    expect(summary).not.toBeNull();
+    expect(summary?.batchId).toBe('batch-1');
+    expect(summary?.total).toBe(4);
+    expect(summary?.ok).toBe(2);
+    expect(summary?.partial).toBe(1);
+    expect(summary?.failed).toBe(1);
+    expect(summary?.skipped).toBe(0);
+    expect(summary?.finishedAt).toBe(400);
+    expect([...(summary?.retryDomains ?? [])].sort()).toEqual(['b.com', 'c.com']);
+    expect(summary?.issues.map((r) => r.domain).sort()).toEqual(['b.com', 'c.com']);
+  });
+
+  it('offers no retry for an all-ok batch, and no summary for no records', () => {
+    const summary = summarizeBatchRuns([
+      record('1', 'a.com', okOutcome, 100, 'batch-ok'),
+      record('2', 'b.com', okOutcome, 200, 'batch-ok'),
+    ]);
+    expect(summary?.retryDomains).toEqual([]);
+    expect(summary?.issues).toEqual([]);
+    expect(summarizeBatchRuns([])).toBeNull();
+  });
+
+  it('getLatestBatchSummary reads the newest batch from the runs store alone (no batch state)', async () => {
+    // An older batch, fully ok.
+    await recordRun('old.com', okOutcome, 1_000, 'batch-old');
+    // The most recent batch: mixed outcomes.
+    await recordRun('a.com', okOutcome, 2_000, 'batch-new');
+    await recordRun('b.com', partialOutcome, 3_000, 'batch-new');
+    await recordRun('c.com', failedOutcome, 4_000, 'batch-new');
+    await recordRun('d.com', okOutcome, 5_000, 'batch-new');
+
+    const summary = await getLatestBatchSummary();
+    expect(summary?.batchId).toBe('batch-new');
+    expect(summary?.total).toBe(4);
+    expect(summary?.ok).toBe(2);
+    expect(summary?.partial).toBe(1);
+    expect(summary?.failed).toBe(1);
+    expect([...(summary?.retryDomains ?? [])].sort()).toEqual(['b.com', 'c.com']);
+  });
+
+  it('getLatestBatchSummary is null when no batch has recorded runs', async () => {
+    await recordRun('solo.com', okOutcome, 1_000);
+    expect(await getLatestBatchSummary()).toBeNull();
   });
 });
 

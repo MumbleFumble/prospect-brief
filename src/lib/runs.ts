@@ -94,3 +94,77 @@ export async function listRunsForDomain(
   );
   return records.sort(byRecentFirst).slice(0, limit);
 }
+
+/* ------------------------------------------------------------------ */
+/* Batch run summary (v0.4 step 6)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Exact outcome counts for one completed batch, derived from its
+ * recorded runs — the durable summary the Accounts view shows after
+ * a batch finishes (batch state itself is removed on completion).
+ */
+export interface BatchRunSummary {
+  batchId: string;
+  /** finishedAt of the batch's most recent recorded run. */
+  finishedAt: number;
+  total: number;
+  ok: number;
+  partial: number;
+  failed: number;
+  skipped: number;
+  /** Domains whose outcome was partial or failed — the retry set. */
+  retryDomains: string[];
+  /** The non-ok records, recent-first, for display. */
+  issues: RunRecord[];
+}
+
+/**
+ * Summarize the records of ONE batch (any order). Pure. Returns null
+ * for an empty record set. If a domain somehow has two records in
+ * the batch, the most recent one wins, so counts and the retry set
+ * always describe each domain exactly once.
+ */
+export function summarizeBatchRuns(records: RunRecord[]): BatchRunSummary | null {
+  if (records.length === 0) return null;
+  const sorted = [...records].sort(byRecentFirst);
+  const latestByDomain = new Map<string, RunRecord>();
+  for (const record of sorted) {
+    if (!latestByDomain.has(record.domain)) latestByDomain.set(record.domain, record);
+  }
+  const latest = [...latestByDomain.values()];
+  const count = (status: RunOutcome['status']) =>
+    latest.filter((r) => r.outcome.status === status).length;
+  const issues = latest
+    .filter((r) => r.outcome.status === 'partial' || r.outcome.status === 'failed')
+    .sort(byRecentFirst);
+  return {
+    batchId: sorted[0].batchId ?? '',
+    finishedAt: sorted[0].finishedAt,
+    total: latest.length,
+    ok: count('ok'),
+    partial: count('partial'),
+    failed: count('failed'),
+    skipped: count('skipped'),
+    retryDomains: issues.map((r) => r.domain),
+    issues,
+  };
+}
+
+/** All recorded runs for one batch, recent-first. */
+export async function listRunsForBatch(batchId: string): Promise<RunRecord[]> {
+  const all = await dbTx<RunRecord[]>(RUNS_STORE, 'readonly', (s) => s.getAll());
+  return all.filter((r) => r.batchId === batchId).sort(byRecentFirst);
+}
+
+/**
+ * The summary of the most recent batch that recorded any runs, or
+ * null if no batch has. Derived entirely from the runs store, so it
+ * survives popup close and the batch-state record being removed.
+ */
+export async function getLatestBatchSummary(): Promise<BatchRunSummary | null> {
+  const recent = await listRuns(MAX_RUNS);
+  const latest = recent.find((r) => r.batchId);
+  if (!latest?.batchId) return null;
+  return summarizeBatchRuns(await listRunsForBatch(latest.batchId));
+}

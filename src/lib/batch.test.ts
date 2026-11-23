@@ -12,6 +12,7 @@ import {
   type BatchState,
 } from './batch';
 import { generateBriefWithSignals, type BriefGeneration } from './brief';
+import { summarizeBatchRuns, type RunRecord } from './runs';
 import type { RunOutcome } from './run-outcome';
 import type { PageSignals } from './types';
 
@@ -314,6 +315,10 @@ describe('runBatchQueue (resumable batch queue)', () => {
       crashOnSaveNumber(n: number) {
         crashOnSave = n;
       },
+      /** Start a batch over the given domains (default: the standard four). */
+      startBatchOf(domains: string[]) {
+        stored = createBatchState(domains, 0);
+      },
     };
   }
 
@@ -384,6 +389,40 @@ describe('runBatchQueue (resumable batch queue)', () => {
     };
     await runBatchQueue(deps);
     for (const d of DOMAINS) expect(h.researchCalls.get(d)).toBe(1);
+    expect(h.stored).toBeNull();
+  });
+
+  it('retry researches exactly the partial+failed domains and no ok domain', async () => {
+    const h = makeHarness();
+    h.startBatch();
+    await runBatchQueue(h.deps());
+    expect(h.stored).toBeNull();
+
+    // Derive the retry set from the recorded outcomes, exactly as
+    // the summary UI does (production summarizeBatchRuns).
+    const asRecords: RunRecord[] = h.records.map((r, i) => ({
+      id: `run-${i}`,
+      domain: r.domain,
+      outcome: r.outcome,
+      finishedAt: r.finishedAt,
+      batchId: r.batchId,
+    }));
+    const summary = summarizeBatchRuns(asRecords);
+    expect(summary?.ok).toBe(2);
+    expect(summary?.partial).toBe(1);
+    expect(summary?.failed).toBe(1);
+    expect([...(summary?.retryDomains ?? [])].sort()).toEqual(['b.com', 'c.com']);
+
+    // Retry: a NEW batch over exactly the retry domains, run through
+    // the same production engine.
+    const callsBefore = new Map(h.researchCalls);
+    h.startBatchOf(summary?.retryDomains ?? []);
+    await runBatchQueue(h.deps());
+
+    expect(h.researchCalls.get('b.com')).toBe((callsBefore.get('b.com') ?? 0) + 1);
+    expect(h.researchCalls.get('c.com')).toBe((callsBefore.get('c.com') ?? 0) + 1);
+    expect(h.researchCalls.get('a.com')).toBe(callsBefore.get('a.com'));
+    expect(h.researchCalls.get('d.com')).toBe(callsBefore.get('d.com'));
     expect(h.stored).toBeNull();
   });
 
