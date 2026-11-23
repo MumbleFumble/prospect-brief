@@ -214,6 +214,12 @@ export interface BatchState {
   createdAt: number;
   /** Last processor heartbeat; a stale heartbeat means the worker died. */
   heartbeat: number;
+  /**
+   * Identifies this batch in the runs store (v0.4 step 5), so a
+   * resumed processor can tell this batch's recorded outcomes from
+   * any other batch's. Absent on states written before step 5.
+   */
+  batchId?: string;
 }
 
 const BATCH_KEY = 'batch:state';
@@ -226,6 +232,148 @@ export async function getBatchState(): Promise<BatchState | null> {
 
 export async function setBatchState(state: BatchState): Promise<void> {
   await chrome.storage.local.set({ [BATCH_KEY]: state });
+}
+
+/** Remove the batch state record entirely (batch finished/cleared). */
+export async function clearBatchState(): Promise<void> {
+  await chrome.storage.local.remove(BATCH_KEY);
+}
+
+let batchIdCounter = 0;
+
+export function newBatchId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid;
+  batchIdCounter += 1;
+  return `batch-${Date.now()}-${batchIdCounter}`;
+}
+
+/** Build the initial durable state for a new batch. */
+export function createBatchState(domains: string[], now: number): BatchState {
+  return {
+    items: domains.slice(0, MAX_BATCH).map((domain) => ({ domain, status: 'queued' as const })),
+    createdAt: now,
+    heartbeat: now,
+    batchId: newBatchId(),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Resumable queue engine (v0.4 step 5)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The queue processor's dependencies. The background worker wires
+ * these to chrome.storage, the runs store, and researchDomain; the
+ * unit tests wire them to in-memory stores so the production engine
+ * itself is what gets exercised.
+ */
+export interface BatchQueueDeps {
+  loadState: () => Promise<BatchState | null>;
+  saveState: (state: BatchState) => Promise<void>;
+  clearState: () => Promise<void>;
+  research: (domain: string) => Promise<RunOutcome>;
+  /** Persist a finished item's outcome (runs store in production). */
+  record: (
+    domain: string,
+    outcome: RunOutcome,
+    finishedAt: number,
+    batchId: string | null,
+  ) => Promise<unknown>;
+  /**
+   * Look up a FINAL outcome already recorded for this batch + domain
+   * (the durable evidence an item finished before an interruption).
+   */
+  findRecordedOutcome: (
+    batchId: string,
+    domain: string,
+  ) => Promise<{ outcome: RunOutcome; finishedAt: number } | null>;
+  now: () => number;
+  /** Called when the queue drains (production clears the resume alarm). */
+  onQueueEmpty?: () => Promise<unknown>;
+}
+
+/**
+ * Process the durable batch state to completion.
+ *
+ * Resume contract: the state record is the queue; the runs store is
+ * the evidence. On (re-)entry, any queued/running item that already
+ * has a recorded final outcome FOR THIS BATCH adopts that outcome
+ * instead of being re-researched — this closes the loss window where
+ * an item finished and was recorded, but the worker died before the
+ * state write landed. Items with no recorded outcome are processed
+ * exactly once by whichever processor reaches them.
+ *
+ * When no queued/running items remain, the state record is REMOVED:
+ * a finished (or fully cancelled) batch leaves no resumable state
+ * and can never "resume". Recording and lookup failures are
+ * best-effort and never break the queue (inc-010 isolation).
+ */
+export async function runBatchQueue(deps: BatchQueueDeps): Promise<void> {
+  for (;;) {
+    const state = await deps.loadState();
+    if (!state) return;
+
+    // An item stuck in 'running' means a previous worker died mid-item.
+    const stuck = state.items.find((i) => i.status === 'running');
+    if (stuck) stuck.status = 'queued';
+
+    // Reconcile against the durable runs store before researching.
+    if (state.batchId) {
+      let adopted = false;
+      for (const item of state.items) {
+        if (item.status !== 'queued') continue;
+        const recorded = await deps
+          .findRecordedOutcome(state.batchId, item.domain)
+          .catch(() => null);
+        if (!recorded) continue;
+        item.outcome = recorded.outcome;
+        item.status = batchStatusForOutcome(recorded.outcome);
+        if (item.status === 'error') item.error = recorded.outcome.detail;
+        item.finishedAt = recorded.finishedAt;
+        adopted = true;
+      }
+      if (adopted) {
+        state.heartbeat = deps.now();
+        await deps.saveState(state);
+      }
+    }
+
+    const next = state.items.find((i) => i.status === 'queued');
+    if (!next) {
+      await deps.onQueueEmpty?.().catch(() => {});
+      await deps.clearState();
+      return;
+    }
+
+    next.status = 'running';
+    state.heartbeat = deps.now();
+    await deps.saveState(state);
+
+    try {
+      const outcome = await deps.research(next.domain);
+      next.outcome = outcome;
+      next.status = batchStatusForOutcome(outcome);
+      if (next.status === 'error') next.error = outcome.detail;
+    } catch (e) {
+      next.status = 'error';
+      next.error = e instanceof Error ? e.message : String(e);
+      next.outcome = classifyRunOutcome({ error: e });
+    }
+    next.finishedAt = deps.now();
+
+    // Persist the run history for ok, partial, and failed items
+    // alike. Best-effort: a recording failure must never break the
+    // batch, so errors are swallowed here.
+    if (next.outcome) {
+      await deps
+        .record(next.domain, next.outcome, next.finishedAt, state.batchId ?? null)
+        .catch(() => {});
+    }
+
+    state.heartbeat = deps.now();
+    await deps.saveState(state);
+  }
 }
 
 export function batchProgress(state: BatchState): {

@@ -6,9 +6,13 @@ import {
   batchProgress,
   batchStatusForOutcome,
   classifyBatchGeneration,
+  createBatchState,
+  runBatchQueue,
+  type BatchQueueDeps,
   type BatchState,
 } from './batch';
 import { generateBriefWithSignals, type BriefGeneration } from './brief';
+import type { RunOutcome } from './run-outcome';
 import type { PageSignals } from './types';
 
 describe('parseDomainList', () => {
@@ -230,5 +234,167 @@ describe('classifyBatchGeneration', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+});
+
+describe('runBatchQueue (resumable batch queue)', () => {
+  const okOutcome: RunOutcome = {
+    status: 'ok',
+    reason: 'success',
+    detail: 'Brief produced, complete, and fully grounded.',
+  };
+  const partialOutcome: RunOutcome = {
+    status: 'partial',
+    reason: 'max-tokens',
+    detail: 'Generation stopped at max_tokens.',
+  };
+  const DOMAINS = ['a.com', 'b.com', 'c.com', 'd.com'];
+
+  /**
+   * In-memory durable stores + a counting research fake. The stores
+   * outlive any single engine run, exactly like chrome.storage and
+   * the runs store outlive the service worker.
+   */
+  function makeHarness() {
+    let stored: BatchState | null = null;
+    let tick = 0;
+    const records: Array<{
+      domain: string;
+      outcome: RunOutcome;
+      finishedAt: number;
+      batchId: string | null;
+    }> = [];
+    const researchCalls = new Map<string, number>();
+    let saveCount = 0;
+    let crashOnSave: number | null = null;
+
+    const research = async (domain: string): Promise<RunOutcome> => {
+      researchCalls.set(domain, (researchCalls.get(domain) ?? 0) + 1);
+      if (domain === 'b.com') return partialOutcome;
+      if (domain === 'c.com') throw new Error('Failed to fetch');
+      return okOutcome;
+    };
+
+    const deps = (): BatchQueueDeps => ({
+      // Deep copies both ways: chrome.storage serializes, so a state
+      // mutation only becomes durable when its save actually lands.
+      loadState: async () => (stored ? structuredClone(stored) : null),
+      saveState: async (s) => {
+        saveCount += 1;
+        if (crashOnSave !== null && saveCount === crashOnSave) {
+          throw new Error('worker died');
+        }
+        stored = structuredClone(s);
+      },
+      clearState: async () => {
+        stored = null;
+      },
+      research,
+      record: async (domain, outcome, finishedAt, batchId) => {
+        records.push({ domain, outcome, finishedAt, batchId });
+      },
+      findRecordedOutcome: async (batchId, domain) => {
+        const match = records.find((r) => r.batchId === batchId && r.domain === domain);
+        return match ? { outcome: match.outcome, finishedAt: match.finishedAt } : null;
+      },
+      now: () => ++tick,
+    });
+
+    return {
+      deps,
+      records,
+      researchCalls,
+      get stored() {
+        return stored;
+      },
+      startBatch() {
+        stored = createBatchState(DOMAINS, 0);
+      },
+      /** Make the Nth saveState call throw, simulating worker death. */
+      crashOnSaveNumber(n: number) {
+        crashOnSave = n;
+      },
+    };
+  }
+
+  function outcomeCounts(records: Array<{ outcome: RunOutcome }>) {
+    return {
+      ok: records.filter((r) => r.outcome.status === 'ok').length,
+      partial: records.filter((r) => r.outcome.status === 'partial').length,
+      failed: records.filter((r) => r.outcome.status === 'failed').length,
+    };
+  }
+
+  it('runs a batch to completion and leaves no resumable state', async () => {
+    const h = makeHarness();
+    h.startBatch();
+    await runBatchQueue(h.deps());
+
+    expect(h.stored).toBeNull();
+    for (const d of DOMAINS) expect(h.researchCalls.get(d)).toBe(1);
+    expect(outcomeCounts(h.records)).toEqual({ ok: 2, partial: 1, failed: 1 });
+
+    // A completed batch never "resumes": re-entering is a no-op.
+    await runBatchQueue(h.deps());
+    for (const d of DOMAINS) expect(h.researchCalls.get(d)).toBe(1);
+    expect(h.records).toHaveLength(4);
+  });
+
+  it('resumes after interruption without re-researching finished items', async () => {
+    // Control: an uninterrupted run's final counts.
+    const control = makeHarness();
+    control.startBatch();
+    await runBatchQueue(control.deps());
+    const controlCounts = outcomeCounts(control.records);
+    expect(controlCounts).toEqual({ ok: 2, partial: 1, failed: 1 });
+
+    // Interrupted run: saves are a.com running(1), a.com final(2),
+    // b.com running(3), b.com final(4). Crashing save 4 means b.com
+    // finished and was RECORDED, but the state write never landed —
+    // the durable state still shows b.com 'running'.
+    const h = makeHarness();
+    h.startBatch();
+    h.crashOnSaveNumber(4);
+    await expect(runBatchQueue(h.deps())).rejects.toThrow('worker died');
+    expect(h.researchCalls.get('a.com')).toBe(1);
+    expect(h.researchCalls.get('b.com')).toBe(1);
+    expect(h.stored?.items.find((i) => i.domain === 'b.com')?.status).toBe('running');
+    expect(h.records.map((r) => r.domain)).toEqual(['a.com', 'b.com']);
+
+    // Resume through the production engine with fresh in-memory
+    // wiring over the SAME durable stores (a new worker's view).
+    await runBatchQueue(h.deps());
+
+    // Finished items were NOT re-researched; the remainder ran once.
+    for (const d of DOMAINS) expect(h.researchCalls.get(d)).toBe(1);
+    // No item lost or duplicated in the durable record, and the
+    // final counts match the uninterrupted run exactly.
+    expect(h.records.map((r) => r.domain).sort()).toEqual([...DOMAINS].sort());
+    expect(outcomeCounts(h.records)).toEqual(controlCounts);
+    // And the completed batch leaves no resumable state.
+    expect(h.stored).toBeNull();
+  });
+
+  it('a failing record never breaks the batch', async () => {
+    const h = makeHarness();
+    h.startBatch();
+    const deps = h.deps();
+    deps.record = async () => {
+      throw new Error('runs store unavailable');
+    };
+    await runBatchQueue(deps);
+    for (const d of DOMAINS) expect(h.researchCalls.get(d)).toBe(1);
+    expect(h.stored).toBeNull();
+  });
+
+  it('a fully cancelled batch drains and leaves no resumable state', async () => {
+    const h = makeHarness();
+    h.startBatch();
+    const state = h.stored;
+    if (!state) throw new Error('expected a started batch');
+    for (const item of state.items) item.status = 'cancelled';
+    await runBatchQueue(h.deps());
+    expect(h.stored).toBeNull();
+    expect(h.researchCalls.size).toBe(0);
   });
 });

@@ -20,6 +20,12 @@ export interface RunRecord {
   finishedAt: number;
   /** The full classified outcome, stored verbatim. */
   outcome: RunOutcome;
+  /**
+   * The batch this run belonged to, when recorded from the batch
+   * path (v0.4 step 5) — lets a resumed batch tell its own recorded
+   * outcomes from any other batch's. Null/absent for non-batch runs.
+   */
+  batchId?: string | null;
 }
 
 /** Retention cap: recordRun prunes the oldest records beyond this. */
@@ -45,8 +51,15 @@ export async function recordRun(
   domain: string,
   outcome: RunOutcome,
   finishedAt: number = Date.now(),
+  batchId?: string | null,
 ): Promise<RunRecord> {
-  const record: RunRecord = { id: newRunId(finishedAt), domain, finishedAt, outcome };
+  const record: RunRecord = {
+    id: newRunId(finishedAt),
+    domain,
+    finishedAt,
+    outcome,
+    batchId: batchId ?? null,
+  };
   await dbTx(RUNS_STORE, 'readwrite', (s) => s.add(record));
   await pruneRuns().catch(() => {});
   return record;

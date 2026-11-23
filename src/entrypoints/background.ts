@@ -15,18 +15,19 @@ import {
 } from '../lib/accounts';
 import { diffSnapshots, pendingWatchEvents } from '../lib/watch';
 import {
-  MAX_BATCH,
   batchProgress,
-  batchStatusForOutcome,
   classifyBatchGeneration,
+  clearBatchState,
+  createBatchState,
   getBatchState,
+  runBatchQueue,
   setBatchState,
   signalsFromHtml,
   type BatchState,
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
-import { classifyRunOutcome, type RunOutcome } from '../lib/run-outcome';
-import { recordRun } from '../lib/runs';
+import { type RunOutcome } from '../lib/run-outcome';
+import { listRunsForDomain, recordRun } from '../lib/runs';
 import { generateOutreach } from '../lib/outreach';
 import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
@@ -231,46 +232,30 @@ async function researchDomain(domain: string): Promise<RunOutcome> {
   return outcome;
 }
 
+/**
+ * The production wiring for the resumable queue engine (batch.ts,
+ * v0.4 step 5): durable state in chrome.storage, run history in the
+ * IndexedDB runs store, research via researchDomain.
+ */
 async function processBatch(): Promise<void> {
   if (batchRunning) return;
   batchRunning = true;
   try {
-    for (;;) {
-      const state = await getBatchState();
-      if (!state) return;
-      // An item stuck in 'running' means a previous worker died mid-item.
-      const stuck = state.items.find((i) => i.status === 'running');
-      if (stuck) stuck.status = 'queued';
-      const next = state.items.find((i) => i.status === 'queued');
-      if (!next) {
-        state.heartbeat = Date.now();
-        await setBatchState(state);
-        await chrome.alarms.clear(BATCH_ALARM).catch(() => false);
-        return;
-      }
-      next.status = 'running';
-      state.heartbeat = Date.now();
-      await setBatchState(state);
-      try {
-        const outcome = await researchDomain(next.domain);
-        next.outcome = outcome;
-        next.status = batchStatusForOutcome(outcome);
-        if (next.status === 'error') next.error = outcome.detail;
-      } catch (e) {
-        next.status = 'error';
-        next.error = e instanceof Error ? e.message : String(e);
-        next.outcome = classifyRunOutcome({ error: e });
-      }
-      next.finishedAt = Date.now();
-      // Persist the run history (v0.4 step 4) for ok, partial, and
-      // failed items alike. Best-effort by design: a recording
-      // failure must never break the batch, so errors are swallowed.
-      if (next.outcome) {
-        await recordRun(next.domain, next.outcome, next.finishedAt).catch(() => {});
-      }
-      state.heartbeat = Date.now();
-      await setBatchState(state);
-    }
+    await runBatchQueue({
+      loadState: getBatchState,
+      saveState: setBatchState,
+      clearState: clearBatchState,
+      research: researchDomain,
+      record: (domain, outcome, finishedAt, batchId) =>
+        recordRun(domain, outcome, finishedAt, batchId),
+      findRecordedOutcome: async (batchId, domain) => {
+        const runs = await listRunsForDomain(domain);
+        const match = runs.find((r) => r.batchId === batchId);
+        return match ? { outcome: match.outcome, finishedAt: match.finishedAt } : null;
+      },
+      now: Date.now,
+      onQueueEmpty: () => chrome.alarms.clear(BATCH_ALARM).catch(() => false),
+    });
   } finally {
     batchRunning = false;
   }
@@ -281,11 +266,7 @@ async function startBatch(domains: string[]): Promise<BatchState> {
   if (existing && batchProgress(existing).active) {
     throw new Error('A batch is already running. Cancel it before starting another.');
   }
-  const state: BatchState = {
-    items: domains.slice(0, MAX_BATCH).map((domain) => ({ domain, status: 'queued' as const })),
-    createdAt: Date.now(),
-    heartbeat: Date.now(),
-  };
+  const state = createBatchState(domains, Date.now());
   await setBatchState(state);
   await chrome.alarms.create(BATCH_ALARM, { periodInMinutes: 1 });
   void processBatch();
@@ -510,6 +491,9 @@ export default defineBackground(() => {
           }
           state.heartbeat = Date.now();
           await setBatchState(state);
+          // Let the queue engine drain and remove the now-unresumable
+          // state (a no-op while a live processor owns the batch).
+          void processBatch();
         }
         sendResponse({ ok: true });
       })();
