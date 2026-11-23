@@ -3,6 +3,7 @@ import { briefToMarkdown } from './markdown';
 import type { Brief } from './brief';
 
 const BRIEF: Brief = {
+  schemaVersion: 1,
   overview: 'Acme builds payments infrastructure.',
   overviewRefs: [0],
   talkingPoints: [

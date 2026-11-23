@@ -36,6 +36,43 @@ describe('BriefSchema', () => {
       BriefSchema.parse({ overview: 'x', talkingPoints: [{ point: 'x', sourceRefs: [1.5] }] }),
     ).toThrow();
   });
+
+  it('reads a legacy payload with no schemaVersion as version 1', () => {
+    const parsed = BriefSchema.parse({
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(parsed.schemaVersion).toBe(1);
+  });
+
+  it('accepts an explicit schemaVersion 2 payload as version 2', () => {
+    const parsed = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(parsed.schemaVersion).toBe(2);
+  });
+
+  it('rejects schemaVersion 3', () => {
+    expect(() =>
+      BriefSchema.parse({
+        schemaVersion: 3,
+        overview: 'x',
+        talkingPoints: [{ point: 'x', sourceRefs: [] }],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a non-integer schemaVersion', () => {
+    expect(() =>
+      BriefSchema.parse({
+        schemaVersion: 2.5,
+        overview: 'x',
+        talkingPoints: [{ point: 'x', sourceRefs: [] }],
+      }),
+    ).toThrow();
+  });
 });
 
 describe('validateBriefResponse', () => {
@@ -50,6 +87,37 @@ describe('validateBriefResponse', () => {
     expect(result.valid).toBe(true);
     expect(result.failures).toEqual([]);
     expect(result.brief?.overview).toContain('Acme');
+  });
+
+  it('reads a legacy response (no schemaVersion) as version 1', () => {
+    const result = validateBriefResponse(validRaw);
+    expect(result.valid).toBe(true);
+    expect(result.brief?.schemaVersion).toBe(1);
+  });
+
+  it('accepts an explicit schemaVersion 2 response as version 2', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 2,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(true);
+    expect(result.brief?.schemaVersion).toBe(2);
+  });
+
+  it('rejects schemaVersion 3 with the invalid-schema-version reason', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 3,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-schema-version']);
   });
 
   it('fails invalid JSON with the invalid-json reason', () => {
@@ -209,6 +277,28 @@ describe('generateBriefWithSignals', () => {
     const brief = await generateBrief('key', 'model', signals, [], []);
     expect(brief.overview).toContain('Example sells widgets');
     expect(brief.talkingPoints).toHaveLength(1);
+  });
+
+  it('stamps generated briefs with schemaVersion 2 (model text omits the field)', async () => {
+    mockAnthropic([{ text: validText }]);
+    const result = await generateBriefWithSignals('key', 'model', signals, [], []);
+    expect(result.brief.schemaVersion).toBe(2);
+    expect(result.validation.brief?.schemaVersion).toBe(2);
+  });
+
+  it('stamps a generated brief as 2 even when the model claims version 1', async () => {
+    mockAnthropic([
+      {
+        text: JSON.stringify({
+          schemaVersion: 1,
+          overview: 'Example sells widgets.',
+          overviewRefs: [0],
+          talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0] }],
+        }),
+      },
+    ]);
+    const brief = await generateBrief('key', 'model', signals, [], []);
+    expect(brief.schemaVersion).toBe(2);
   });
 });
 

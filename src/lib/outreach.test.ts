@@ -3,6 +3,7 @@ import { OutreachSchema, buildOutreachPrompt } from './outreach';
 import type { Brief } from './brief';
 
 const BRIEF: Brief = {
+  schemaVersion: 1,
   overview: 'Acme builds payments infrastructure for online stores.',
   overviewRefs: [0],
   talkingPoints: [

@@ -8,6 +8,7 @@ const SAVED: SavedBrief = {
   domain: 'acme.com',
   url: 'https://acme.com/',
   brief: {
+    schemaVersion: 1,
     overview: 'Acme builds payments infrastructure.',
     overviewRefs: [0],
     talkingPoints: [

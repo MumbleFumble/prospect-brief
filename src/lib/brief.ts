@@ -26,7 +26,18 @@ export const TalkingPointSchema = z.object({
   basis: z.enum(['news', 'stack', 'site', 'hiring', 'inference']).default('news'),
 });
 
+/** The schema version newly generated briefs are stamped with. */
+export const CURRENT_BRIEF_SCHEMA_VERSION = 2 as const;
+
 export const BriefSchema = z.object({
+  /**
+   * Schema version of this brief payload (v0.5): 1 is the original
+   * shape, 2 the current one. Payloads written before the field
+   * existed carry no schemaVersion and read as version 1 (the
+   * default); any other value fails validation. The generation
+   * path stamps new briefs with CURRENT_BRIEF_SCHEMA_VERSION.
+   */
+  schemaVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   overview: z.string().min(1),
   /** News indexes cited by the overview. */
   overviewRefs: z.array(z.number().int().nonnegative()).default([]),
@@ -190,6 +201,14 @@ export function validateBriefResponse(raw: string): BriefValidationResult {
     if (!failures.includes(reason)) failures.push(reason);
   };
 
+  if (
+    parsed.schemaVersion !== undefined &&
+    parsed.schemaVersion !== 1 &&
+    parsed.schemaVersion !== 2
+  ) {
+    push('invalid-schema-version');
+  }
+
   if (parsed.overview === undefined) push('missing-overview');
   else if (typeof parsed.overview !== 'string') push('overview-wrong-type');
   else if (parsed.overview.length === 0) push('empty-overview');
@@ -306,7 +325,15 @@ export async function generateBriefWithSignals(
       if (!validation.valid || !validation.brief) {
         throw new Error(`Invalid brief response: ${validation.failures.join(', ')}`);
       }
-      return { brief: validation.brief, stopReason, validation };
+      // Stamp the current schema version: the model is not asked
+      // for the field (an omitted field parses as legacy 1 and must
+      // not fail for that reason alone), but a brief produced by
+      // the current code is a version-2 brief.
+      const stamped: Brief = {
+        ...validation.brief,
+        schemaVersion: CURRENT_BRIEF_SCHEMA_VERSION,
+      };
+      return { brief: stamped, stopReason, validation: { ...validation, brief: stamped } };
     } catch (e) {
       lastError = e;
     }

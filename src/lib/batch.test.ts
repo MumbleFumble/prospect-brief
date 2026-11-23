@@ -154,6 +154,7 @@ describe('batchProgress', () => {
 
 describe('classifyBatchGeneration', () => {
   const brief = {
+    schemaVersion: 2 as const,
     overview: 'Acme sells widgets.',
     overviewRefs: [0],
     talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0], stackRefs: [], basis: 'news' as const }],

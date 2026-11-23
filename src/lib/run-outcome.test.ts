@@ -4,6 +4,7 @@ import type { Brief } from './brief';
 
 function brief(partial: Partial<Brief>): Brief {
   return {
+    schemaVersion: 1,
     overview: 'Acme sells widgets to mid-market retailers.',
     overviewRefs: [0],
     talkingPoints: [
