@@ -61,3 +61,40 @@ describe('savedBriefsToCsv', () => {
     expect(csv).toContain('"Has, commas"');
   });
 });
+
+describe('savedBriefsToCsv formula-injection guard', () => {
+  const withOverview = (overview: string): string =>
+    savedBriefsToCsv([{ ...SAVED, brief: { ...SAVED.brief, overview } }]);
+
+  it.each(['=2+2', '+2+2', '-2+2', '@SUM(A1)'])(
+    'prefixes a formula-leading cell (%s) with a single quote',
+    (cell) => {
+      expect(withOverview(cell)).toContain(`'${cell}`);
+    },
+  );
+
+  it('prefixes a tab-prefixed formula cell', () => {
+    expect(withOverview('\t=2+2')).toContain("'\t=2+2");
+  });
+
+  it('prefixes a CR-prefixed formula cell', () => {
+    expect(withOverview('\r@SUM(A1)')).toContain("'\r@SUM(A1)");
+  });
+
+  it('leaves a normal row byte-identical', () => {
+    const lines = savedBriefsToCsv([SAVED]).split('\n');
+    expect(lines[1]).toBe(
+      'Acme,acme.com,https://acme.com/,2026-10-20,Acme builds payments infrastructure.,They raised $100M.,42,Stripe',
+    );
+  });
+
+  it('guards AND quotes a formula cell that contains a comma', () => {
+    expect(withOverview('=SUM(A1,B1)')).toContain('"\'=SUM(A1,B1)"');
+  });
+
+  it('leaves the numeric Open Roles cell unprefixed', () => {
+    const csv = savedBriefsToCsv([SAVED]);
+    expect(csv.split('\n')[1]).toContain(',42,');
+    expect(csv).not.toContain("'42");
+  });
+});

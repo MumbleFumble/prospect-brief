@@ -42,7 +42,14 @@ export function briefToCrmNote(s: SavedBrief): string {
 }
 
 function csvEscape(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  // Neutralise spreadsheet formula injection: a cell whose text
+  // begins with =, +, - or @ — or with a tab/CR followed by one of
+  // those — is evaluated as a formula when opened in Excel/Sheets.
+  // Prefix a single quote so it is treated as text. Overviews and
+  // talking points are model-generated from untrusted prospect-page
+  // content, so every CSV cell passes through this choke point.
+  const guarded = /^[\t\r]?[=+\-@]/.test(v) ? `'${v}` : v;
+  return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 /** Export saved briefs as CSV (one row per brief). */
