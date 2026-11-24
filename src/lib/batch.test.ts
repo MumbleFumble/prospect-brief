@@ -160,6 +160,7 @@ describe('classifyBatchGeneration', () => {
     overviewStackRefs: [],
     overviewBasis: 'site' as const,
     risks: [],
+    opportunities: [],
     talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0], stackRefs: [], basis: 'news' as const }],
   };
 

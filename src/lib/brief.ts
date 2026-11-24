@@ -45,6 +45,23 @@ export const RiskSchema = z.object({
   basis: BasisSchema.default('inference'),
 });
 
+/**
+ * A grounded positive opening at the prospect (expansion, funding,
+ * new leadership, a hiring surge, a stack change creating a fit).
+ * Mirrors TalkingPointSchema/RiskSchema exactly; basis defaults to
+ * 'news' — opportunities are primarily headline/hiring-driven
+ * openings.
+ */
+export const OpportunitySchema = z.object({
+  point: z.string().min(1),
+  /** Indexes into the news array passed to the prompt. */
+  sourceRefs: z.array(z.number().int().nonnegative()),
+  /** Indexes into the detections array. Grounds stack-based openings. */
+  stackRefs: z.array(z.number().int().nonnegative()).default([]),
+  /** Grounding basis for this opening (see BasisSchema). */
+  basis: BasisSchema.default('news'),
+});
+
 /** The schema version newly generated briefs are stamped with. */
 export const CURRENT_BRIEF_SCHEMA_VERSION = 2 as const;
 
@@ -76,6 +93,12 @@ export const BriefSchema = z.object({
    * as before.
    */
   risks: z.array(RiskSchema).default([]),
+  /**
+   * Grounded positive openings at the prospect. Defaulted (empty)
+   * so v1 and existing v2 payloads without the section parse
+   * exactly as before.
+   */
+  opportunities: z.array(OpportunitySchema).default([]),
 });
 
 export type Brief = z.infer<typeof BriefSchema>;
@@ -203,6 +226,7 @@ ${hiringSection}${competitorSection}${sellerSection}RULES
 - Only state facts supported by the website text, tech stack, or headlines above. Do NOT invent funding rounds, employee counts, revenue, or partnerships.
 - GROUNDING: For each talking point, set "basis" to where the claim comes from: "news" (a headline - include its index in sourceRefs), "stack" (a detected technology - include its [S#] index in stackRefs), "site" (the company's own website text), "hiring" (an open role or hiring pattern from HIRING SIGNALS), or "inference" (your own reasoning, not directly grounded). Never claim a basis you cannot support.
 - RISKS: List watch-outs about this prospect that the material above actually supports (e.g. layoffs, a hiring freeze, churn signals, a tech mismatch) in risks. For each risk, cite supporting headline indexes in sourceRefs and supporting tech-stack [S#] indexes in stackRefs, and set basis honestly using the same basis definitions as for talking points. If nothing in the material supports a risk, return an empty risks array rather than inventing one.
+- OPPORTUNITIES: List positive openings at this prospect that the material above actually supports (e.g. expansion, funding, new leadership, a hiring surge, a tech-stack change creating a fit) in opportunities. For each opportunity, cite supporting headline indexes in sourceRefs and supporting tech-stack [S#] indexes in stackRefs, and set basis honestly using the same basis definitions as for talking points. If nothing in the material supports an opening, return an empty opportunities array rather than inventing one.
 - If a signal is absent (no news, no relevant tech), leave the point out rather than inventing one. Prefer "not found" over guessing.
 - The overview may only cite headlines or detected technologies that actually support it; put supporting headline indexes in overviewRefs and supporting tech-stack [S#] indexes in overviewStackRefs (both empty if none apply), and set overviewBasis to where the overview's claims mainly come from, using the same basis definitions as for talking points.
 - If the headlines don't support a claim, don't make it.
@@ -321,6 +345,19 @@ export function validateBriefResponse(raw: string): BriefValidationResult {
       }
       if (risk.stackRefs !== undefined && !isRefArray(risk.stackRefs)) {
         push('invalid-ref-shape:risks.stackRefs');
+      }
+    }
+  }
+
+  // Opportunities (v0.5): same named ref-shape checks as risks.
+  if (Array.isArray(parsed.opportunities)) {
+    for (const opportunity of parsed.opportunities) {
+      if (!isPlainObject(opportunity)) continue;
+      if (opportunity.sourceRefs !== undefined && !isRefArray(opportunity.sourceRefs)) {
+        push('invalid-ref-shape:opportunities.sourceRefs');
+      }
+      if (opportunity.stackRefs !== undefined && !isRefArray(opportunity.stackRefs)) {
+        push('invalid-ref-shape:opportunities.stackRefs');
       }
     }
   }

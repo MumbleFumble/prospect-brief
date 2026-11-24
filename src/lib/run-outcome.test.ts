@@ -10,6 +10,7 @@ function brief(partial: Partial<Brief>): Brief {
     overviewStackRefs: [],
     overviewBasis: 'site',
     risks: [],
+    opportunities: [],
     talkingPoints: [
       { point: 'Ask about their recent expansion.', sourceRefs: [0], stackRefs: [], basis: 'news' },
     ],

@@ -122,6 +122,36 @@ describe('BriefSchema', () => {
     expect(v2.risks).toEqual([]);
   });
 
+  it('defaults opportunities to [] on v1-shaped and v2 payloads without the section', () => {
+    const v1 = BriefSchema.parse({
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(v1.opportunities).toEqual([]);
+    const v2 = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(v2.opportunities).toEqual([]);
+  });
+
+  it('parses opportunities with refs preserved and basis defaulting to news', () => {
+    const parsed = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+      opportunities: [
+        { point: 'Expansion into Europe announced.', sourceRefs: [0], stackRefs: [1], basis: 'hiring' },
+        { point: 'New funding round reported.', sourceRefs: [0] },
+      ],
+    });
+    expect(parsed.opportunities).toHaveLength(2);
+    expect(parsed.opportunities[0]).toMatchObject({ sourceRefs: [0], stackRefs: [1], basis: 'hiring' });
+    expect(parsed.opportunities[1].basis).toBe('news');
+    expect(parsed.opportunities[1].stackRefs).toEqual([]);
+  });
+
   it('parses risks with refs preserved and basis defaulting to inference', () => {
     const parsed = BriefSchema.parse({
       schemaVersion: 2,
@@ -239,6 +269,48 @@ describe('validateBriefResponse', () => {
     expect(result.valid).toBe(false);
     expect(result.brief).toBeNull();
     expect(result.failures).toEqual(['invalid-ref-shape:risks.stackRefs']);
+  });
+
+  it('round-trips opportunities through validation with refs and basis preserved', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 2,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      opportunities: [
+        { point: 'Hiring surge in engineering.', sourceRefs: [0], stackRefs: [], basis: 'hiring' },
+        { point: 'Migrating off a legacy stack.', sourceRefs: [], stackRefs: [0], basis: 'stack' },
+      ],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(true);
+    expect(result.brief?.opportunities).toHaveLength(2);
+    expect(result.brief?.opportunities[0]).toMatchObject({ sourceRefs: [0], basis: 'hiring' });
+    expect(result.brief?.opportunities[1]).toMatchObject({ stackRefs: [0], basis: 'stack' });
+  });
+
+  it('names malformed opportunities sourceRefs exactly invalid-ref-shape:opportunities.sourceRefs', () => {
+    const raw = JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      opportunities: [{ point: 'An opening.', sourceRefs: 'not-an-array', stackRefs: [] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-ref-shape:opportunities.sourceRefs']);
+  });
+
+  it('names malformed opportunities stackRefs exactly invalid-ref-shape:opportunities.stackRefs', () => {
+    const raw = JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      opportunities: [{ point: 'An opening.', sourceRefs: [], stackRefs: [-1] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-ref-shape:opportunities.stackRefs']);
   });
 
   it('rejects schemaVersion 3 with the invalid-schema-version reason', () => {
@@ -462,6 +534,8 @@ describe('generateBriefWithSignals', () => {
     );
     // inc-019: the risks section arrives the same way.
     expect(Object.keys(schema.properties)).toEqual(expect.arrayContaining(['risks']));
+    // inc-020: the opportunities section arrives the same way.
+    expect(Object.keys(schema.properties)).toEqual(expect.arrayContaining(['opportunities']));
     // API-shape hygiene: objects are closed and no unsupported
     // constraint keywords survive the derivation transform.
     expect(schema.additionalProperties).toBe(false);

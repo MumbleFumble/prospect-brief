@@ -9,6 +9,7 @@ const BRIEF: Brief = {
   overviewStackRefs: [],
   overviewBasis: 'site',
   risks: [],
+  opportunities: [],
   talkingPoints: [
     { point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' },
     { point: 'New product launched.', sourceRefs: [], stackRefs: [], basis: 'site' },
