@@ -13,6 +13,7 @@ const SAVED: SavedBrief = {
     overviewRefs: [0],
     overviewStackRefs: [],
     overviewBasis: 'site',
+    risks: [],
     talkingPoints: [
       { point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' },
       { point: 'Hiring 20 engineers.', sourceRefs: [], stackRefs: [], basis: 'hiring' },

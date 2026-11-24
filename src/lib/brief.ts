@@ -29,6 +29,22 @@ export const TalkingPointSchema = z.object({
   basis: BasisSchema.default('news'),
 });
 
+/**
+ * A grounded watch-out about the prospect (layoffs, churn signals,
+ * tech mismatch, a hiring freeze). Mirrors TalkingPointSchema's
+ * shape exactly; only the basis default differs — 'inference',
+ * because risks are primarily reasoned watch-outs.
+ */
+export const RiskSchema = z.object({
+  point: z.string().min(1),
+  /** Indexes into the news array passed to the prompt. */
+  sourceRefs: z.array(z.number().int().nonnegative()),
+  /** Indexes into the detections array. Grounds stack-based risks. */
+  stackRefs: z.array(z.number().int().nonnegative()).default([]),
+  /** Grounding basis for this risk (see BasisSchema). */
+  basis: BasisSchema.default('inference'),
+});
+
 /** The schema version newly generated briefs are stamped with. */
 export const CURRENT_BRIEF_SCHEMA_VERSION = 2 as const;
 
@@ -54,6 +70,12 @@ export const BriefSchema = z.object({
    */
   overviewBasis: BasisSchema.default('site'),
   talkingPoints: z.array(TalkingPointSchema).min(1).max(8),
+  /**
+   * Grounded watch-outs about the prospect. Defaulted (empty) so
+   * v1 and existing v2 payloads without the section parse exactly
+   * as before.
+   */
+  risks: z.array(RiskSchema).default([]),
 });
 
 export type Brief = z.infer<typeof BriefSchema>;
@@ -180,6 +202,7 @@ ${headlines || '(none found)'}
 ${hiringSection}${competitorSection}${sellerSection}RULES
 - Only state facts supported by the website text, tech stack, or headlines above. Do NOT invent funding rounds, employee counts, revenue, or partnerships.
 - GROUNDING: For each talking point, set "basis" to where the claim comes from: "news" (a headline - include its index in sourceRefs), "stack" (a detected technology - include its [S#] index in stackRefs), "site" (the company's own website text), "hiring" (an open role or hiring pattern from HIRING SIGNALS), or "inference" (your own reasoning, not directly grounded). Never claim a basis you cannot support.
+- RISKS: List watch-outs about this prospect that the material above actually supports (e.g. layoffs, a hiring freeze, churn signals, a tech mismatch) in risks. For each risk, cite supporting headline indexes in sourceRefs and supporting tech-stack [S#] indexes in stackRefs, and set basis honestly using the same basis definitions as for talking points. If nothing in the material supports a risk, return an empty risks array rather than inventing one.
 - If a signal is absent (no news, no relevant tech), leave the point out rather than inventing one. Prefer "not found" over guessing.
 - The overview may only cite headlines or detected technologies that actually support it; put supporting headline indexes in overviewRefs and supporting tech-stack [S#] indexes in overviewStackRefs (both empty if none apply), and set overviewBasis to where the overview's claims mainly come from, using the same basis definitions as for talking points.
 - If the headlines don't support a claim, don't make it.
@@ -282,6 +305,22 @@ export function validateBriefResponse(raw: string): BriefValidationResult {
       else if (!isRefArray(point.sourceRefs)) push('invalid-ref-shape:sourceRefs');
       if (point.stackRefs !== undefined && !isRefArray(point.stackRefs)) {
         push('invalid-ref-shape:stackRefs');
+      }
+    }
+  }
+
+  // Risks (v0.5): only the ref shapes get named checks, in the
+  // same style as the talking-point checks; any other malformation
+  // (non-array, bad basis, empty text) falls through to the schema
+  // path below, as with overviewBasis.
+  if (Array.isArray(parsed.risks)) {
+    for (const risk of parsed.risks) {
+      if (!isPlainObject(risk)) continue;
+      if (risk.sourceRefs !== undefined && !isRefArray(risk.sourceRefs)) {
+        push('invalid-ref-shape:risks.sourceRefs');
+      }
+      if (risk.stackRefs !== undefined && !isRefArray(risk.stackRefs)) {
+        push('invalid-ref-shape:risks.stackRefs');
       }
     }
   }

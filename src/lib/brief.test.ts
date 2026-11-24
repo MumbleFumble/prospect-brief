@@ -107,6 +107,36 @@ describe('BriefSchema', () => {
     expect(parsed.overviewStackRefs).toEqual([0, 2]);
     expect(parsed.overviewBasis).toBe('stack');
   });
+
+  it('defaults risks to [] on v1-shaped and v2 payloads without the section', () => {
+    const v1 = BriefSchema.parse({
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(v1.risks).toEqual([]);
+    const v2 = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(v2.risks).toEqual([]);
+  });
+
+  it('parses risks with refs preserved and basis defaulting to inference', () => {
+    const parsed = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+      risks: [
+        { point: 'Layoffs reported.', sourceRefs: [0], stackRefs: [1], basis: 'news' },
+        { point: 'Stack mismatch with the seller stack.', sourceRefs: [] },
+      ],
+    });
+    expect(parsed.risks).toHaveLength(2);
+    expect(parsed.risks[0]).toMatchObject({ sourceRefs: [0], stackRefs: [1], basis: 'news' });
+    expect(parsed.risks[1].basis).toBe('inference');
+    expect(parsed.risks[1].stackRefs).toEqual([]);
+  });
 });
 
 describe('validateBriefResponse', () => {
@@ -167,6 +197,48 @@ describe('validateBriefResponse', () => {
     expect(result.valid).toBe(false);
     expect(result.brief).toBeNull();
     expect(result.failures).toEqual(['invalid-ref-shape:overviewStackRefs']);
+  });
+
+  it('round-trips risks through validation with refs and basis preserved', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 2,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      risks: [
+        { point: 'Hiring freeze reported.', sourceRefs: [0], stackRefs: [], basis: 'news' },
+        { point: 'Legacy stack may resist migration.', sourceRefs: [], stackRefs: [0], basis: 'stack' },
+      ],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(true);
+    expect(result.brief?.risks).toHaveLength(2);
+    expect(result.brief?.risks[0]).toMatchObject({ sourceRefs: [0], basis: 'news' });
+    expect(result.brief?.risks[1]).toMatchObject({ stackRefs: [0], basis: 'stack' });
+  });
+
+  it('names malformed risks sourceRefs exactly invalid-ref-shape:risks.sourceRefs', () => {
+    const raw = JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      risks: [{ point: 'A risk.', sourceRefs: 'not-an-array', stackRefs: [] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-ref-shape:risks.sourceRefs']);
+  });
+
+  it('names malformed risks stackRefs exactly invalid-ref-shape:risks.stackRefs', () => {
+    const raw = JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+      risks: [{ point: 'A risk.', sourceRefs: [], stackRefs: [1.5] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-ref-shape:risks.stackRefs']);
   });
 
   it('rejects schemaVersion 3 with the invalid-schema-version reason', () => {
@@ -388,6 +460,8 @@ describe('generateBriefWithSignals', () => {
     expect(Object.keys(schema.properties)).toEqual(
       expect.arrayContaining(['overviewStackRefs', 'overviewBasis']),
     );
+    // inc-019: the risks section arrives the same way.
+    expect(Object.keys(schema.properties)).toEqual(expect.arrayContaining(['risks']));
     // API-shape hygiene: objects are closed and no unsupported
     // constraint keywords survive the derivation transform.
     expect(schema.additionalProperties).toBe(false);
