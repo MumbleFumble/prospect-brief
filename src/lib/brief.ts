@@ -46,6 +46,48 @@ export const BriefSchema = z.object({
 
 export type Brief = z.infer<typeof BriefSchema>;
 
+/**
+ * JSON Schema for the Anthropic structured-output request
+ * (output_config.format — the current documented mechanism, per
+ * https://docs.claude.com/en/docs/build-with-claude/structured-outputs),
+ * DERIVED from BriefSchema so the API-side schema can never drift
+ * from the validation schema: z.toJSONSchema renders the zod
+ * schema, then the transform strips the constraint keywords
+ * Anthropic's structured-output grammar does not support
+ * (minLength/maxLength, minItems/maxItems, minimum/maximum,
+ * defaults, the $schema marker — the documented SDK helpers do the
+ * same removal) and pins additionalProperties: false on every
+ * object, as the API requires. Local validation
+ * (validateBriefResponse) still enforces every stripped constraint
+ * — defence in depth.
+ */
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+  '$schema',
+  'default',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+]);
+
+function toStructuredOutputSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(toStructuredOutputSchema);
+  if (typeof node !== 'object' || node === null) return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (UNSUPPORTED_SCHEMA_KEYS.has(key)) continue;
+    out[key] = toStructuredOutputSchema(value);
+  }
+  if (out.type === 'object') out.additionalProperties = false;
+  return out;
+}
+
+export const BRIEF_JSON_SCHEMA = toStructuredOutputSchema(
+  z.toJSONSchema(BriefSchema),
+) as Record<string, unknown>;
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 1024;
@@ -130,17 +172,7 @@ ${hiringSection}${competitorSection}${sellerSection}RULES
 - The overview may only cite headlines that actually support it; put their indexes in overviewRefs (empty if none apply).
 - If the headlines don't support a claim, don't make it.
 ${talkingPointRule}
-- Keep the overview to 3-4 sentences. Keep each talking point to 1-2 sentences.
-
-Respond with ONLY a JSON object matching this shape:
-{
-  "overview": "string",
-  "overviewRefs": [0],
-  "talkingPoints": [
-    { "point": "string", "sourceRefs": [0, 2], "stackRefs": [], "basis": "news" },
-    { "point": "string", "sourceRefs": [], "stackRefs": [0], "basis": "stack" }
-  ]
-}`;
+- Keep the overview to 3-4 sentences. Keep each talking point to 1-2 sentences.`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,6 +317,12 @@ async function callAnthropic(
       model,
       max_tokens: MAX_TOKENS,
       messages: [{ role: 'user', content: prompt }],
+      // Structured output (JSON outputs): the API constrains the
+      // response to the Brief JSON schema. The response still
+      // arrives as a text block and is validated locally as before.
+      output_config: {
+        format: { type: 'json_schema', schema: BRIEF_JSON_SCHEMA },
+      },
     }),
   });
   if (!res.ok) {

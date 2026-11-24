@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import {
   BriefSchema,
   buildPrompt,
@@ -284,6 +285,62 @@ describe('generateBriefWithSignals', () => {
     const result = await generateBriefWithSignals('key', 'model', signals, [], []);
     expect(result.brief.schemaVersion).toBe(2);
     expect(result.validation.brief?.schemaVersion).toBe(2);
+  });
+
+  it('requests structured output with a Brief-shaped schema derived from BriefSchema', async () => {
+    const fetchFn = mockAnthropic([{ text: validText }]);
+    const result = await generateBriefWithSignals('key', 'model', signals, [], []);
+    // (ii) a structured valid response produces a brief stamped 2.
+    expect(result.brief.schemaVersion).toBe(2);
+
+    // (i) the outgoing request carries output_config.format with a
+    // json_schema for the Brief shape.
+    const init = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const body = JSON.parse(init.body as string) as {
+      output_config: { format: { type: string; schema: Record<string, unknown> } };
+    };
+    expect(body.output_config.format.type).toBe('json_schema');
+    const schema = body.output_config.format.schema as {
+      properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
+      required: string[];
+      additionalProperties: boolean;
+    };
+    // Drift guard: the sent schema's field names are exactly
+    // BriefSchema's, at the top level and inside talkingPoints.
+    const derived = z.toJSONSchema(BriefSchema) as {
+      properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
+    };
+    expect(Object.keys(schema.properties).sort()).toEqual(
+      Object.keys(derived.properties).sort(),
+    );
+    expect(Object.keys(schema.properties).sort()).toEqual(
+      Object.keys(BriefSchema.shape).sort(),
+    );
+    expect(
+      Object.keys(schema.properties.talkingPoints.items?.properties ?? {}).sort(),
+    ).toEqual(
+      Object.keys(derived.properties.talkingPoints.items?.properties ?? {}).sort(),
+    );
+    expect(schema.required).toEqual(expect.arrayContaining(['overview', 'talkingPoints']));
+    // API-shape hygiene: objects are closed and no unsupported
+    // constraint keywords survive the derivation transform.
+    expect(schema.additionalProperties).toBe(false);
+    expect(JSON.stringify(schema)).not.toMatch(
+      /"(minLength|maxLength|minItems|maxItems|minimum|maximum|\$schema|default)"/,
+    );
+  });
+
+  it('still fails a schemaVersion 3 response through validation + retry-once', async () => {
+    const bad = JSON.stringify({
+      schemaVersion: 3,
+      overview: 'Example sells widgets.',
+      talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0] }],
+    });
+    const fetchFn = mockAnthropic([{ text: bad }, { text: bad }]);
+    await expect(generateBriefWithSignals('key', 'model', signals, [], [])).rejects.toThrow(
+      'invalid-schema-version',
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it('stamps a generated brief as 2 even when the model claims version 1', async () => {
