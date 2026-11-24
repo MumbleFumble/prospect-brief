@@ -6,6 +6,8 @@ const BRIEF: Brief = {
   schemaVersion: 1,
   overview: 'Acme builds payments infrastructure.',
   overviewRefs: [0],
+  overviewStackRefs: [],
+  overviewBasis: 'site',
   talkingPoints: [
     { point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' },
     { point: 'New product launched.', sourceRefs: [], stackRefs: [], basis: 'site' },

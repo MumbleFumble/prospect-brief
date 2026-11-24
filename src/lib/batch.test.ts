@@ -157,6 +157,8 @@ describe('classifyBatchGeneration', () => {
     schemaVersion: 2 as const,
     overview: 'Acme sells widgets.',
     overviewRefs: [0],
+    overviewStackRefs: [],
+    overviewBasis: 'site' as const,
     talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0], stackRefs: [], basis: 'news' as const }],
   };
 

@@ -74,6 +74,39 @@ describe('BriefSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('defaults the overview grounding fields on a v1-shaped payload', () => {
+    const parsed = BriefSchema.parse({
+      overview: 'x',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(parsed.overviewStackRefs).toEqual([]);
+    expect(parsed.overviewBasis).toBe('site');
+  });
+
+  it('defaults the overview grounding fields on a v2 payload without them', () => {
+    const parsed = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      overviewRefs: [0],
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(parsed.overviewStackRefs).toEqual([]);
+    expect(parsed.overviewBasis).toBe('site');
+  });
+
+  it('round-trips explicit overviewStackRefs and overviewBasis', () => {
+    const parsed = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: 'x',
+      overviewRefs: [0],
+      overviewStackRefs: [0, 2],
+      overviewBasis: 'stack',
+      talkingPoints: [{ point: 'x', sourceRefs: [] }],
+    });
+    expect(parsed.overviewStackRefs).toEqual([0, 2]);
+    expect(parsed.overviewBasis).toBe('stack');
+  });
 });
 
 describe('validateBriefResponse', () => {
@@ -106,6 +139,34 @@ describe('validateBriefResponse', () => {
     const result = validateBriefResponse(raw);
     expect(result.valid).toBe(true);
     expect(result.brief?.schemaVersion).toBe(2);
+  });
+
+  it('round-trips overviewStackRefs and overviewBasis through validation', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 2,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      overviewStackRefs: [1],
+      overviewBasis: 'stack',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(true);
+    expect(result.brief?.overviewStackRefs).toEqual([1]);
+    expect(result.brief?.overviewBasis).toBe('stack');
+  });
+
+  it('names a malformed overviewStackRefs exactly invalid-ref-shape:overviewStackRefs', () => {
+    const raw = JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [0],
+      overviewStackRefs: 'not-an-array',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0] }],
+    });
+    const result = validateBriefResponse(raw);
+    expect(result.valid).toBe(false);
+    expect(result.brief).toBeNull();
+    expect(result.failures).toEqual(['invalid-ref-shape:overviewStackRefs']);
   });
 
   it('rejects schemaVersion 3 with the invalid-schema-version reason', () => {
@@ -322,6 +383,11 @@ describe('generateBriefWithSignals', () => {
       Object.keys(derived.properties.talkingPoints.items?.properties ?? {}).sort(),
     );
     expect(schema.required).toEqual(expect.arrayContaining(['overview', 'talkingPoints']));
+    // inc-018: the new overview grounding fields arrive in the
+    // sent schema by derivation, not hand-editing.
+    expect(Object.keys(schema.properties)).toEqual(
+      expect.arrayContaining(['overviewStackRefs', 'overviewBasis']),
+    );
     // API-shape hygiene: objects are closed and no unsupported
     // constraint keywords survive the derivation transform.
     expect(schema.additionalProperties).toBe(false);

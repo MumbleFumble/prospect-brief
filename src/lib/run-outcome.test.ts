@@ -7,6 +7,8 @@ function brief(partial: Partial<Brief>): Brief {
     schemaVersion: 1,
     overview: 'Acme sells widgets to mid-market retailers.',
     overviewRefs: [0],
+    overviewStackRefs: [],
+    overviewBasis: 'site',
     talkingPoints: [
       { point: 'Ask about their recent expansion.', sourceRefs: [0], stackRefs: [], basis: 'news' },
     ],

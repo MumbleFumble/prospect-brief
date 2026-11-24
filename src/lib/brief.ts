@@ -9,21 +9,24 @@ import { findCompetitors } from './competitors';
  * Validated with Zod; the model gets one retry on invalid JSON.
  */
 
+/**
+ * Grounding basis shared by talking points and the overview:
+ * - 'news': drawn from a cited headline (sourceRefs / overviewRefs)
+ * - 'stack': drawn from a detected technology (stackRefs / overviewStackRefs)
+ * - 'site': drawn from the company's own website text
+ * - 'hiring': drawn from open job postings
+ * - 'inference': the model's inference, not directly grounded
+ */
+export const BasisSchema = z.enum(['news', 'stack', 'site', 'hiring', 'inference']);
+
 export const TalkingPointSchema = z.object({
   point: z.string().min(1),
   /** Indexes into the news array passed to the prompt. */
   sourceRefs: z.array(z.number().int().nonnegative()),
   /** Indexes into the detections array. Grounds stack-based points. */
   stackRefs: z.array(z.number().int().nonnegative()).default([]),
-  /**
-   * Grounding basis for this point:
-   * - 'news': drawn from a cited headline (sourceRefs)
-   * - 'stack': drawn from a detected technology (stackRefs)
-   * - 'site': drawn from the company's own website text
-   * - 'hiring': drawn from open job postings
-   * - 'inference': the model's inference, not directly grounded
-   */
-  basis: z.enum(['news', 'stack', 'site', 'hiring', 'inference']).default('news'),
+  /** Grounding basis for this point (see BasisSchema). */
+  basis: BasisSchema.default('news'),
 });
 
 /** The schema version newly generated briefs are stamped with. */
@@ -41,6 +44,15 @@ export const BriefSchema = z.object({
   overview: z.string().min(1),
   /** News indexes cited by the overview. */
   overviewRefs: z.array(z.number().int().nonnegative()).default([]),
+  /** Detection indexes cited by the overview (parity with talking-point stackRefs). */
+  overviewStackRefs: z.array(z.number().int().nonnegative()).default([]),
+  /**
+   * Grounding basis for the overview (see BasisSchema). Default
+   * 'site': the overview primarily summarises the company's own
+   * website text. Defaulted so v1 and existing v2 payloads without
+   * the field parse exactly as before.
+   */
+  overviewBasis: BasisSchema.default('site'),
   talkingPoints: z.array(TalkingPointSchema).min(1).max(8),
 });
 
@@ -169,7 +181,7 @@ ${hiringSection}${competitorSection}${sellerSection}RULES
 - Only state facts supported by the website text, tech stack, or headlines above. Do NOT invent funding rounds, employee counts, revenue, or partnerships.
 - GROUNDING: For each talking point, set "basis" to where the claim comes from: "news" (a headline - include its index in sourceRefs), "stack" (a detected technology - include its [S#] index in stackRefs), "site" (the company's own website text), "hiring" (an open role or hiring pattern from HIRING SIGNALS), or "inference" (your own reasoning, not directly grounded). Never claim a basis you cannot support.
 - If a signal is absent (no news, no relevant tech), leave the point out rather than inventing one. Prefer "not found" over guessing.
-- The overview may only cite headlines that actually support it; put their indexes in overviewRefs (empty if none apply).
+- The overview may only cite headlines or detected technologies that actually support it; put supporting headline indexes in overviewRefs and supporting tech-stack [S#] indexes in overviewStackRefs (both empty if none apply), and set overviewBasis to where the overview's claims mainly come from, using the same basis definitions as for talking points.
 - If the headlines don't support a claim, don't make it.
 ${talkingPointRule}
 - Keep the overview to 3-4 sentences. Keep each talking point to 1-2 sentences.`;
@@ -247,6 +259,10 @@ export function validateBriefResponse(raw: string): BriefValidationResult {
 
   if (parsed.overviewRefs !== undefined && !isRefArray(parsed.overviewRefs)) {
     push('invalid-ref-shape:overviewRefs');
+  }
+
+  if (parsed.overviewStackRefs !== undefined && !isRefArray(parsed.overviewStackRefs)) {
+    push('invalid-ref-shape:overviewStackRefs');
   }
 
   if (parsed.talkingPoints === undefined) push('missing-talking-points');

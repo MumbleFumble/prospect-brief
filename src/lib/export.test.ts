@@ -11,6 +11,8 @@ const SAVED: SavedBrief = {
     schemaVersion: 1,
     overview: 'Acme builds payments infrastructure.',
     overviewRefs: [0],
+    overviewStackRefs: [],
+    overviewBasis: 'site',
     talkingPoints: [
       { point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' },
       { point: 'Hiring 20 engineers.', sourceRefs: [], stackRefs: [], basis: 'hiring' },
