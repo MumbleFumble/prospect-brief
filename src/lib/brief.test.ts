@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  BRIEF_MAX_OUTPUT_TOKENS,
+  BRIEF_MAX_TOTAL_TOKENS,
   BriefSchema,
   buildPrompt,
+  estimateTokens,
   generateBrief,
   generateBriefWithSignals,
   validateBriefResponse,
@@ -492,6 +495,34 @@ describe('generateBriefWithSignals', () => {
     expect(result.validation.brief?.schemaVersion).toBe(2);
   });
 
+  it('sends max_tokens from the BRIEF_MAX_OUTPUT_TOKENS ceiling constant', async () => {
+    const fetchFn = mockAnthropic([{ text: validText }]);
+    await generateBriefWithSignals('key', 'model', signals, [], []);
+    const init = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const body = JSON.parse(init.body as string) as { max_tokens: number };
+    expect(body.max_tokens).toBe(BRIEF_MAX_OUTPUT_TOKENS);
+  });
+
+  it('fails an over-ceiling prompt BEFORE any API call, named prompt-over-ceiling', async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error('fetch must not be called for an over-ceiling prompt');
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    // ~80 detections with long evidence push the assembled prompt
+    // far past the combined ceiling (visible text alone is capped
+    // by buildPrompt, detection evidence is not).
+    const detections = Array.from({ length: 80 }, (_, i) => ({
+      name: `Tech${i}`,
+      category: 'platform',
+      confidence: 'high' as const,
+      evidence: ['e'.repeat(200)],
+    }));
+    await expect(
+      generateBriefWithSignals('key', 'model', signals, detections, []),
+    ).rejects.toThrow('prompt-over-ceiling');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('requests structured output with a Brief-shaped schema derived from BriefSchema', async () => {
     const fetchFn = mockAnthropic([{ text: validText }]);
     const result = await generateBriefWithSignals('key', 'model', signals, [], []);
@@ -570,6 +601,49 @@ describe('generateBriefWithSignals', () => {
     ]);
     const brief = await generateBrief('key', 'model', signals, [], []);
     expect(brief.schemaVersion).toBe(2);
+  });
+});
+
+describe('token ceilings', () => {
+  it('estimateTokens uses the ~4 chars/token convention, rounding up', () => {
+    expect(estimateTokens('')).toBe(0);
+    expect(estimateTokens('abcd')).toBe(1);
+    expect(estimateTokens('abcde')).toBe(2);
+  });
+
+  it('a maximal all-sections brief serialises within BRIEF_MAX_OUTPUT_TOKENS', () => {
+    // The maximal fixture the ceiling was derived from: 8 talking
+    // points (schema cap), 8 risks, 8 opportunities, 235-char
+    // points, 10 refs per ref array, a 604-char overview. If a
+    // future section outgrows the ceiling, this test fails here
+    // instead of truncating in production.
+    const LONG_POINT =
+      'The company recently expanded its platform into a new market segment, which creates a concrete opening to discuss migration support, onboarding effort, and how the current tooling scales with a much larger volume of daily active usage.';
+    const LONG_OVERVIEW =
+      'Acme builds payments infrastructure for online commerce, selling to mid-market and enterprise retailers that need reliable checkout, fraud screening, and settlement tooling. The company has expanded steadily from its original invoicing product into a broader platform, hiring across engineering and sales while opening new offices. Its stack centres on a modern web platform with several third-party services for analytics, support, and billing. Recent headlines point to fresh funding, new leadership in go-to-market roles, and a push into adjacent verticals that would stretch its current integrations.';
+    const refs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const item = (basis: 'news' | 'inference') => ({
+      point: LONG_POINT,
+      sourceRefs: refs,
+      stackRefs: refs,
+      basis,
+    });
+    const maximal = BriefSchema.parse({
+      schemaVersion: 2,
+      overview: LONG_OVERVIEW,
+      overviewRefs: refs,
+      overviewStackRefs: refs,
+      overviewBasis: 'news',
+      talkingPoints: Array.from({ length: 8 }, () => item('news')),
+      risks: Array.from({ length: 8 }, () => item('inference')),
+      opportunities: Array.from({ length: 8 }, () => item('news')),
+    });
+    const estimated = estimateTokens(JSON.stringify(maximal));
+    expect(estimated).toBeLessThanOrEqual(BRIEF_MAX_OUTPUT_TOKENS);
+    // The fixture must stay genuinely maximal — over half the
+    // ceiling — or the pin stops proving anything.
+    expect(estimated).toBeGreaterThan(BRIEF_MAX_OUTPUT_TOKENS / 2);
+    expect(BRIEF_MAX_TOTAL_TOKENS).toBeGreaterThan(BRIEF_MAX_OUTPUT_TOKENS);
   });
 });
 

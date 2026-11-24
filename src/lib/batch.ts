@@ -119,12 +119,20 @@ export function signalsFromHtml(domain: string, html: string): PageSignals {
 /* ------------------------------------------------------------------ */
 
 /**
- * Rough per-brief token usage, measured from typical v0.2 prompts:
- * ~3,000 input tokens (signals + detections + news + seller context)
- * and ~900 output tokens (brief JSON). Estimates carry a ±40% band.
+ * Rough per-brief token usage, re-measured Nov 2026 against the
+ * post-v0.5 shapes (estimateTokens convention, ~4 chars/token, in
+ * brief.ts): assembled prompts measure ~650 estimated tokens
+ * (minimal) to ~2,100 (every prompt section populated), and a
+ * typical full brief (overview, 4 talking points, 2 risks,
+ * 2 opportunities) serialises to ~600-850 estimated tokens.
+ * EST_INPUT_TOKENS stays 3,000 — a conservative planning figure
+ * above the fattest measured prompt, also covering the
+ * structured-output format overhead; EST_OUTPUT_TOKENS rises
+ * 900 → 1,000 for the two added sections (risks, opportunities).
+ * Estimates carry a ±40% band.
  */
 export const EST_INPUT_TOKENS = 3000;
-export const EST_OUTPUT_TOKENS = 900;
+export const EST_OUTPUT_TOKENS = 1000;
 
 const PRICING_PER_MTOK: Record<string, { input: number; output: number }> = {
   'claude-opus': { input: 15, output: 75 },

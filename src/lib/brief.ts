@@ -147,7 +147,40 @@ export const BRIEF_JSON_SCHEMA = toStructuredOutputSchema(
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-const MAX_TOKENS = 1024;
+
+/**
+ * Rough token estimate: ~4 characters per token. This is the
+ * measurement convention the repo's token constants (here and the
+ * batch cost estimates in batch.ts) are derived on.
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Output ceiling for one brief generation (v0.5 final step),
+ * DERIVED from the current brief shape: a maximal brief — 8
+ * talking points (the schema cap), 8 risks, 8 opportunities,
+ * 235-character points, 10 refs per ref array, a 604-character
+ * overview — serialises to 8,793 characters ≈ 2,199 estimated
+ * tokens. 4096 holds that with ~1.9x headroom. A unit test pins a
+ * fixture of that maximal brief against this constant, so a
+ * future section that outgrows the ceiling fails the suite
+ * instead of truncating as a silent max_tokens partial.
+ */
+export const BRIEF_MAX_OUTPUT_TOKENS = 4096;
+
+/**
+ * Combined per-generation ceiling: estimated prompt tokens +
+ * BRIEF_MAX_OUTPUT_TOKENS must not exceed this. Measured prompts
+ * run ~650 (minimal) to ~2,100 (every section populated)
+ * estimated tokens, so a prompt estimate over ~4,100 tokens means
+ * the assembled material is anomalous; generation then fails
+ * BEFORE any API call with the named 'prompt-over-ceiling'
+ * failure instead of sending an oversized request or truncating
+ * fetched material behind the caller's back.
+ */
+export const BRIEF_MAX_TOTAL_TOKENS = 8192;
 
 export function buildPrompt(
   signals: PageSignals,
@@ -407,7 +440,7 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: MAX_TOKENS,
+      max_tokens: BRIEF_MAX_OUTPUT_TOKENS,
       messages: [{ role: 'user', content: prompt }],
       // Structured output (JSON outputs): the API constrains the
       // response to the Brief JSON schema. The response still
@@ -447,6 +480,15 @@ export async function generateBriefWithSignals(
 ): Promise<BriefGeneration> {
   if (!apiKey) throw new Error('No Anthropic API key set. Open the extension options to add one.');
   const prompt = buildPrompt(signals, detections, news, seller, hiring);
+  // Pre-send ceiling guard: fail loudly by name BEFORE any API
+  // call if the assembled prompt plus the output ceiling exceeds
+  // the combined ceiling. Nothing is truncated or shortened.
+  const promptTokens = estimateTokens(prompt);
+  if (promptTokens + BRIEF_MAX_OUTPUT_TOKENS > BRIEF_MAX_TOTAL_TOKENS) {
+    throw new Error(
+      `prompt-over-ceiling: assembled prompt is ~${promptTokens} tokens; with the ${BRIEF_MAX_OUTPUT_TOKENS}-token output ceiling it exceeds the ${BRIEF_MAX_TOTAL_TOKENS}-token total ceiling. No API call was made.`,
+    );
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

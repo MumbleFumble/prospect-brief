@@ -77,8 +77,8 @@ describe('signalsFromHtml', () => {
 describe('estimateBatchCost', () => {
   it('estimates sonnet pricing by default model', () => {
     const est = estimateBatchCost(10, 'claude-sonnet-4-5');
-    // per brief: 3000/1e6*3 + 900/1e6*15 = 0.009 + 0.0135 = 0.0225
-    expect(est.estUsd).toBeCloseTo(0.225, 3);
+    // per brief: 3000/1e6*3 + 1000/1e6*15 = 0.009 + 0.015 = 0.024
+    expect(est.estUsd).toBeCloseTo(0.24, 3);
     expect(est.lowUsd).toBeLessThan(est.estUsd);
     expect(est.highUsd).toBeGreaterThan(est.estUsd);
     expect(est.pricingKnown).toBe(true);
