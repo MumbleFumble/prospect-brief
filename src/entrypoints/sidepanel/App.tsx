@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
 import type { Brief } from '../../lib/brief';
+import { formatBriefChange, type BriefChange } from '../../lib/diff';
 import { briefToMarkdown } from '../../lib/markdown';
 import { companyQueryFor } from '../../lib/news';
 import type {
@@ -32,7 +33,19 @@ type Status =
 type BriefStatus =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'ready'; brief: Brief; cachedAt?: number }
+  | {
+      kind: 'ready';
+      brief: Brief;
+      cachedAt?: number;
+      /**
+       * Diff against the previously saved brief (v0.6 step 2),
+       * captured in the background before the save replaced it.
+       * Session-only: held in this state, never persisted.
+       * undefined = not a fresh generation (e.g. cache display);
+       * null = first generation for the domain; [] = identical.
+       */
+      changes?: BriefChange[] | null;
+    }
   | { kind: 'error'; message: string };
 
 async function getActiveTabId(): Promise<number> {
@@ -268,6 +281,37 @@ function OutreachSection({
   );
 }
 
+/**
+ * "Changed since last brief" badge + expandable diff view
+ * (v0.6 step 2). Renders only what diffBriefs produced; the line
+ * wording comes from formatBriefChange. An empty diff says so
+ * plainly; the caller renders nothing at all when there was no
+ * previous saved brief (changes null/undefined).
+ */
+function BriefChanges({ changes }: { changes: BriefChange[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (changes.length === 0) {
+    return <p className="hint">No changes since the last saved brief.</p>;
+  }
+  return (
+    <div className="brief-changes no-print">
+      <p>
+        <button className="link" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
+          Changed since last brief · {changes.length} {changes.length === 1 ? 'change' : 'changes'}{' '}
+          {expanded ? '▾' : '▸'}
+        </button>
+      </p>
+      {expanded && (
+        <ul>
+          {changes.map((change, i) => (
+            <li key={i}>{formatBriefChange(change)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function BriefSection({
   status,
   news,
@@ -303,6 +347,7 @@ function BriefSection({
           {status.cachedAt && (
             <p className="hint">From cache ({new Date(status.cachedAt).toLocaleString()})</p>
           )}
+          {status.changes != null && <BriefChanges changes={status.changes} />}
           <p>{status.brief.overview}</p>
           {status.brief.overviewRefs?.length > 0 && (
             <p>
@@ -379,7 +424,8 @@ export default function App() {
         news,
         hiring,
       })) as BriefResponse;
-      if (briefRes.ok) setBriefStatus({ kind: 'ready', brief: briefRes.brief });
+      if (briefRes.ok)
+        setBriefStatus({ kind: 'ready', brief: briefRes.brief, changes: briefRes.changes });
       else setBriefStatus({ kind: 'error', message: briefRes.error });
     },
     [],

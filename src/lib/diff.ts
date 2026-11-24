@@ -108,3 +108,57 @@ export function diffBriefs(prev: Brief, next: Brief): BriefChange[] {
 export function hasChanges(changes: BriefChange[]): boolean {
   return changes.length > 0;
 }
+
+/**
+ * Capture step for the generation flow (v0.6 step 2): diff a
+ * freshly generated brief against the SAVED brief for the same
+ * domain. MUST be called before saveBrief replaces that domain's
+ * entry — afterwards the previous brief no longer exists. The
+ * saved-brief source is injected so this is testable with a fake
+ * and this module stays free of storage imports. Returns null
+ * when the domain has no saved brief (first generation — nothing
+ * to diff against), otherwise the change list (empty when the
+ * regeneration is identical to the saved brief).
+ */
+export async function diffAgainstSavedBrief(
+  domain: string,
+  next: Brief,
+  listSaved: () => Promise<ReadonlyArray<{ domain: string; brief: Brief }>>,
+): Promise<BriefChange[] | null> {
+  const saved = await listSaved();
+  const prev = saved.find((entry) => entry.domain === domain);
+  if (!prev) return null;
+  return diffBriefs(prev.brief, next);
+}
+
+const SECTION_LABEL: Record<ItemSection, string> = {
+  talkingPoints: 'Talking points',
+  risks: 'Risks',
+  opportunities: 'Opportunities',
+};
+
+const FIELD_LABEL: Record<ItemChangeField, string> = {
+  sourceRefs: 'source refs',
+  stackRefs: 'stack refs',
+  basis: 'basis',
+};
+
+/**
+ * One human-readable line per change entry — the exact wording
+ * the sidepanel diff view renders, kept pure so it is
+ * unit-testable without React.
+ */
+export function formatBriefChange(change: BriefChange): string {
+  switch (change.kind) {
+    case 'overview-changed':
+      return 'Overview changed';
+    case 'added':
+      return `Added (${SECTION_LABEL[change.section]}): ${change.point}`;
+    case 'removed':
+      return `Removed (${SECTION_LABEL[change.section]}): ${change.point}`;
+    case 'changed':
+      return `Changed (${SECTION_LABEL[change.section]}): ${change.point} — ${change.fields
+        .map((f) => FIELD_LABEL[f])
+        .join(', ')} changed`;
+  }
+}

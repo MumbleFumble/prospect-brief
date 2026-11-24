@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Brief } from './brief';
-import { diffBriefs, hasChanges, type ItemSection } from './diff';
+import {
+  diffAgainstSavedBrief,
+  diffBriefs,
+  formatBriefChange,
+  hasChanges,
+  type BriefChange,
+  type ItemSection,
+} from './diff';
 
 type Basis = Brief['talkingPoints'][number]['basis'];
 
@@ -177,5 +184,73 @@ describe('diffBriefs', () => {
     ]);
     // Same inputs, same output, every time.
     expect(diffBriefs(prev, next)).toEqual(diffBriefs(prev, next));
+  });
+});
+
+describe('diffAgainstSavedBrief', () => {
+  const savedEntry = (domain: string, b: Brief) => ({ domain, brief: b });
+
+  it('returns null when the domain has no saved brief (first generation)', async () => {
+    const listSaved = async () => [savedEntry('other.com', brief())];
+    await expect(diffAgainstSavedBrief('acme.com', brief(), listSaved)).resolves.toBeNull();
+    const emptySource = async () => [] as { domain: string; brief: Brief }[];
+    await expect(diffAgainstSavedBrief('acme.com', brief(), emptySource)).resolves.toBeNull();
+  });
+
+  it('diffs the fresh brief against the saved entry for the domain', async () => {
+    const prev = brief();
+    const next = brief({
+      overview: 'A new overview.',
+      risks: [item({ point: 'A risk.', basis: 'inference' })],
+    });
+    const listSaved = async () => [savedEntry('other.com', brief()), savedEntry('acme.com', prev)];
+    const changes = await diffAgainstSavedBrief('acme.com', next, listSaved);
+    expect(changes).toEqual(diffBriefs(prev, next));
+    expect(changes).toHaveLength(2);
+  });
+
+  it('returns an empty list when the fresh brief is identical to the saved one', async () => {
+    const listSaved = async () => [savedEntry('acme.com', brief())];
+    await expect(diffAgainstSavedBrief('acme.com', brief(), listSaved)).resolves.toEqual([]);
+  });
+});
+
+describe('formatBriefChange', () => {
+  it('formats an overview change', () => {
+    const change: BriefChange = {
+      kind: 'overview-changed',
+      section: 'overview',
+      prevOverview: 'Old.',
+      nextOverview: 'New.',
+    };
+    expect(formatBriefChange(change)).toBe('Overview changed');
+  });
+
+  it('formats added and removed with the section label and point text', () => {
+    expect(formatBriefChange({ kind: 'added', section: 'risks', point: 'A risk.' })).toBe(
+      'Added (Risks): A risk.',
+    );
+    expect(
+      formatBriefChange({ kind: 'removed', section: 'talkingPoints', point: 'Old point.' }),
+    ).toBe('Removed (Talking points): Old point.');
+    expect(formatBriefChange({ kind: 'added', section: 'opportunities', point: 'An opening.' })).toBe(
+      'Added (Opportunities): An opening.',
+    );
+  });
+
+  it('formats changed with each field subset named', () => {
+    const base = { kind: 'changed', section: 'talkingPoints', point: 'Same point.' } as const;
+    expect(formatBriefChange({ ...base, fields: ['basis'] })).toBe(
+      'Changed (Talking points): Same point. — basis changed',
+    );
+    expect(formatBriefChange({ ...base, fields: ['sourceRefs'] })).toBe(
+      'Changed (Talking points): Same point. — source refs changed',
+    );
+    expect(formatBriefChange({ ...base, fields: ['stackRefs'] })).toBe(
+      'Changed (Talking points): Same point. — stack refs changed',
+    );
+    expect(formatBriefChange({ ...base, fields: ['sourceRefs', 'stackRefs', 'basis'] })).toBe(
+      'Changed (Talking points): Same point. — source refs, stack refs, basis changed',
+    );
   });
 });

@@ -89,6 +89,7 @@ export interface Detection {
 }
 
 import type { Brief } from './brief';
+import type { BriefChange } from './diff';
 import type { HiringSignals } from './hiring';
 import type { OutreachDraft } from './outreach';
 import type { Sequence } from './sequences';
@@ -114,8 +115,16 @@ export type CollectResponse =
     }
   | { ok: false; error: string };
 
-/** Response carrying the generated brief, or an error. */
-export type BriefResponse = { ok: true; brief: Brief } | { ok: false; error: string };
+/**
+ * Response carrying the generated brief, or an error. `changes`
+ * (v0.6 step 2) is the diff against the previously saved brief
+ * for the domain, captured before the save replaced it: null
+ * when there was no previous saved brief, [] when the fresh
+ * brief is identical to it.
+ */
+export type BriefResponse =
+  | { ok: true; brief: Brief; changes?: BriefChange[] | null }
+  | { ok: false; error: string };
 
 /** Response carrying a generated outreach draft, or an error. */
 export type OutreachResponse = { ok: true; draft: OutreachDraft } | { ok: false; error: string };

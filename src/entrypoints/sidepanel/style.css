@@ -94,6 +94,12 @@ button.link {
   color: #666;
 }
 
+.brief-changes ul {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
 @media print {
   .no-print {
     display: none !important;

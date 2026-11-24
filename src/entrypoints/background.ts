@@ -26,6 +26,7 @@ import {
   type BatchState,
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
+import { diffAgainstSavedBrief } from '../lib/diff';
 import { type RunOutcome } from '../lib/run-outcome';
 import { getLatestBatchSummary, listRunsForDomain, recordRun } from '../lib/runs';
 import { generateOutreach } from '../lib/outreach';
@@ -370,6 +371,12 @@ export default defineBackground(() => {
           );
           // Cache the completed brief per domain (best-effort).
           const domain = domainFor(msg.signals.dom.url);
+          // Capture the diff against the previously saved brief
+          // BEFORE the save below replaces that domain's entry
+          // (v0.6 step 2); afterwards the old brief is gone.
+          const changes = await diffAgainstSavedBrief(domain, brief, listSavedBriefs).catch(
+            () => null,
+          );
           await setCachedBrief({
             domain,
             brief,
@@ -412,7 +419,7 @@ export default defineBackground(() => {
               ),
             Date.now(),
           ).catch((e) => console.warn('Account upsert failed:', e));
-          return { ok: true, brief };
+          return { ok: true, brief, changes };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
