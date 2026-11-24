@@ -291,7 +291,7 @@ function OutreachSection({
 function BriefChanges({ changes }: { changes: BriefChange[] }) {
   const [expanded, setExpanded] = useState(false);
   if (changes.length === 0) {
-    return <p className="hint">No changes since the last saved brief.</p>;
+    return <p className="hint no-print">No changes since the last saved brief.</p>;
   }
   return (
     <div className="brief-changes no-print">
@@ -345,7 +345,9 @@ function BriefSection({
       {status.kind === 'ready' && (
         <>
           {status.cachedAt && (
-            <p className="hint">From cache ({new Date(status.cachedAt).toLocaleString()})</p>
+            <p className="hint no-print">
+              From cache ({new Date(status.cachedAt).toLocaleString()})
+            </p>
           )}
           {status.changes != null && <BriefChanges changes={status.changes} />}
           <p>{status.brief.overview}</p>
@@ -502,7 +504,7 @@ export default function App() {
 
   return (
     <main>
-      <h1>Prospect Brief</h1>
+      <h1 className="no-print">Prospect Brief</h1>
       <p className="no-print">
         <button className="link" onClick={() => setView('today')}>
           Today

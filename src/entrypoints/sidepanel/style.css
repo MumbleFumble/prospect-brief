@@ -101,7 +101,18 @@ button.link {
 }
 
 @media print {
+  @page {
+    margin: 18mm 15mm;
+  }
+
   .no-print {
+    display: none !important;
+  }
+
+  /* Every button in the panel is interactive chrome (toolbar,
+     tabs, toggles, error-state actions) — none belong on paper,
+     including any that lack an explicit no-print class. */
+  button {
     display: none !important;
   }
 
@@ -109,11 +120,55 @@ button.link {
     max-width: none;
   }
 
+  /* Print-safe document: black text on white, paper typography,
+     no coloured backgrounds consuming ink. */
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+    line-height: 1.45;
+  }
+
+  .badge,
+  pre {
+    background: transparent !important;
+  }
+
+  .badge {
+    color: #000;
+    border: 1px solid #888;
+  }
+
+  .basis-tag {
+    color: #444;
+  }
+
+  /* Keep headings with the content they introduce and list
+     items whole; long briefs still flow across pages. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  p {
+    orphans: 3;
+    widows: 3;
+  }
+
   a {
     color: inherit;
     text-decoration: none;
   }
 
+  /* Source-link URLs print in full; in-page anchors (href^="#")
+     are not expanded, so nothing is duplicated. */
   a[href^='http']::after {
     content: ' (' attr(href) ')';
     font-size: 0.75rem;
