@@ -196,15 +196,29 @@ function isAccountRecord(v: unknown): v is AccountRecord {
   );
 }
 
-/** Parse an export file. Throws on unrecognized format. */
+/**
+ * Parse an export file. Throws on unrecognized format.
+ * All-or-nothing (inc-026): if ANY record fails validation the
+ * whole file is rejected with the named 'invalid-account-record'
+ * error — a partial backup must never restore as if complete.
+ * Callers parse fully before writing anything, so a rejected
+ * file imports nothing.
+ */
 export function parseAccountsImport(json: string): AccountRecord[] {
   const data = JSON.parse(json) as { format?: string; accounts?: unknown };
   if (data.format !== 'prospect-brief-accounts' || !Array.isArray(data.accounts)) {
     throw new Error('Not a Prospect Brief accounts export.');
   }
-  const accounts = data.accounts.filter(isAccountRecord);
-  if (accounts.length === 0) throw new Error('No valid account records in the file.');
-  return accounts;
+  const invalidIndexes = data.accounts
+    .map((rec, i) => (isAccountRecord(rec) ? -1 : i))
+    .filter((i) => i >= 0);
+  if (invalidIndexes.length > 0) {
+    throw new Error(
+      `invalid-account-record: ${invalidIndexes.length} of ${data.accounts.length} records in the import file failed validation (first at index ${invalidIndexes[0]}). Nothing was imported.`,
+    );
+  }
+  if (data.accounts.length === 0) throw new Error('No valid account records in the file.');
+  return data.accounts as AccountRecord[];
 }
 
 /* ------------------------------------------------------------------ */

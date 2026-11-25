@@ -134,4 +134,48 @@ describe('export / import', () => {
     expect(() => parseAccountsImport('{"format":"other","accounts":[]}')).toThrow();
     expect(() => parseAccountsImport('{"format":"prospect-brief-accounts","accounts":[{}]}')).toThrow();
   });
+
+  it('rejects a mixed valid/invalid file whole — named error, no records returned', () => {
+    const a = applySnapshot(emptyAccount('x.com', 'X', 'https://x.com', 0), snap(1), brief);
+    const b = emptyAccount('y.com', 'Y', 'https://y.com', 0);
+    const file = JSON.stringify({
+      format: 'prospect-brief-accounts',
+      version: 1,
+      accounts: [a, { domain: 42, company: 'Broken' }, b],
+    });
+    // The throw IS the no-import guarantee: parseAccountsImport
+    // returns nothing, and AccountsView parses fully before its
+    // putAccount loop, so no write can happen for this file.
+    expect(() => parseAccountsImport(file)).toThrowError(
+      'invalid-account-record: 1 of 3 records in the import file failed validation (first at index 1). Nothing was imported.',
+    );
+  });
+
+  it('parses a fully valid multi-record file exactly as before (same records, same order)', () => {
+    const a = applySnapshot(emptyAccount('x.com', 'X', 'https://x.com', 0), snap(1), brief);
+    const b = emptyAccount('y.com', 'Y', 'https://y.com', 0);
+    const parsed = parseAccountsImport(exportAccountsJson([a, b]));
+    expect(parsed.map((r) => r.domain)).toEqual(['x.com', 'y.com']);
+    expect(parsed).toEqual([a, b]);
+  });
+
+  it('keeps the zero-record error for an empty accounts array', () => {
+    expect(() =>
+      parseAccountsImport('{"format":"prospect-brief-accounts","accounts":[]}'),
+    ).toThrowError('No valid account records in the file.');
+  });
+
+  it('exports a backup containing no API key or settings keys (pinned)', () => {
+    const a = applySnapshot(emptyAccount('x.com', 'X', 'https://x.com', 0), snap(1), brief);
+    const json = exportAccountsJson([a]);
+    // Settings live in settings.ts (chrome.storage.local keys
+    // apiKey/model/sellerProfile) and must never leak into a
+    // backup file. If the export shape ever grows a settings
+    // field, this test must fail.
+    expect(json).not.toContain('apiKey');
+    expect(json).not.toContain('sellerProfile');
+    expect(json).not.toContain('"model"');
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(['accounts', 'format', 'version']);
+  });
 });
