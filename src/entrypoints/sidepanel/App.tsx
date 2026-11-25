@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
 import type { Brief } from '../../lib/brief';
+import { briefSections, type BriefItem } from '../../lib/brief-sections';
 import { formatBriefChange, type BriefChange } from '../../lib/diff';
 import { briefToMarkdown } from '../../lib/markdown';
 import { companyQueryFor } from '../../lib/news';
@@ -312,6 +313,62 @@ function BriefChanges({ changes }: { changes: BriefChange[] }) {
   );
 }
 
+const SECTION_HEADING: Record<string, string> = {
+  talkingPoints: 'Talking points',
+  risks: 'Risks',
+  opportunities: 'Opportunities',
+};
+
+/**
+ * One item section's list — the talking-points presentation
+ * (point, basis tag for non-default bases, source links, tech
+ * refs), shared by all three sections so they render identically.
+ */
+function BriefItemList({
+  items,
+  defaultBasis,
+  news,
+  detections,
+}: {
+  items: BriefItem[];
+  defaultBasis: BriefItem['basis'];
+  news: NewsItem[];
+  detections: Detection[];
+}) {
+  return (
+    <ol>
+      {items.map((t, i) => (
+        <li key={i}>
+          {t.point}
+          {t.basis && t.basis !== defaultBasis && (
+            <small className="basis-tag"> ({t.basis})</small>
+          )}
+          {t.sourceRefs.length > 0 && (
+            <small>
+              {' '}
+              — sources:{' '}
+              {t.sourceRefs.map((r) => (
+                <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
+                  [{r + 1}]
+                </a>
+              ))}
+            </small>
+          )}
+          {(t.stackRefs ?? []).length > 0 && (
+            <small>
+              {' '}
+              — tech:{' '}
+              {(t.stackRefs ?? []).map((r) => (
+                <span key={r}>[{detections[r]?.name ?? `S${r + 1}`}] </span>
+              ))}
+            </small>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function BriefSection({
   status,
   news,
@@ -363,35 +420,17 @@ function BriefSection({
               </small>
             </p>
           )}
-          <h3>Talking points</h3>
-          <ol>
-            {status.brief.talkingPoints.map((t, i) => (
-              <li key={i}>
-                {t.point}
-                {t.basis && t.basis !== 'news' && <small className="basis-tag"> ({t.basis})</small>}
-                {t.sourceRefs.length > 0 && (
-                  <small>
-                    {' '}
-                    — sources:{' '}
-                    {t.sourceRefs.map((r) => (
-                      <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
-                        [{r + 1}]
-                      </a>
-                    ))}
-                  </small>
-                )}
-                {(t.stackRefs ?? []).length > 0 && (
-                  <small>
-                    {' '}
-                    — tech:{' '}
-                    {(t.stackRefs ?? []).map((r) => (
-                      <span key={r}>[{detections[r]?.name ?? `S${r + 1}`}] </span>
-                    ))}
-                  </small>
-                )}
-              </li>
-            ))}
-          </ol>
+          {briefSections(status.brief).map((section) => (
+            <div key={section.key}>
+              <h3>{SECTION_HEADING[section.key]}</h3>
+              <BriefItemList
+                items={section.items}
+                defaultBasis={section.defaultBasis}
+                news={news}
+                detections={detections}
+              />
+            </div>
+          ))}
           <p className="no-print">
             <button className="link" onClick={onRegenerate}>
               Regenerate

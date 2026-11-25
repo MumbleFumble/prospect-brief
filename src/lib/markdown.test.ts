@@ -45,4 +45,37 @@ describe('briefToMarkdown', () => {
     expect(md).not.toContain('## Likely Tech Stack');
     expect(md).not.toContain('## Recent News');
   });
+
+  it('includes risks and opportunities with refs and basis, in section order', () => {
+    const full: Brief = {
+      ...BRIEF,
+      schemaVersion: 2,
+      risks: [
+        { point: 'Hiring freeze reported.', sourceRefs: [0], stackRefs: [], basis: 'news' },
+        { point: 'Churn risk inferred from reviews.', sourceRefs: [], stackRefs: [], basis: 'inference' },
+      ],
+      opportunities: [
+        { point: 'Expanding into Europe.', sourceRefs: [], stackRefs: [0], basis: 'stack' },
+      ],
+    };
+    const md = briefToMarkdown('Acme', 'https://acme.com/', full, [], []);
+    expect(md).toContain('## Risks');
+    // basis 'news' is a risk's non-default, so it is shown; the
+    // risks default 'inference' stays silent — the talking-points
+    // pattern applied per section.
+    expect(md).toContain('1. Hiring freeze reported. [1] _(news)_');
+    expect(md).toContain('2. Churn risk inferred from reviews.');
+    expect(md).not.toContain('_(inference)_');
+    expect(md).toContain('## Opportunities');
+    expect(md).toContain('1. Expanding into Europe. [S1] _(stack)_');
+    // Order: Talking Points, then Risks, then Opportunities.
+    expect(md.indexOf('## Talking Points')).toBeLessThan(md.indexOf('## Risks'));
+    expect(md.indexOf('## Risks')).toBeLessThan(md.indexOf('## Opportunities'));
+  });
+
+  it('omits risks and opportunities headings when the brief carries neither', () => {
+    const md = briefToMarkdown('Acme', 'https://acme.com/', BRIEF, [], []);
+    expect(md).not.toContain('## Risks');
+    expect(md).not.toContain('## Opportunities');
+  });
 });
