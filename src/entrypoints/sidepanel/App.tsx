@@ -27,6 +27,7 @@ import {
   startSectionRegen,
   type SectionRegenState,
 } from '../../lib/section-regen-state';
+import { isEditableTarget, shortcutFor, type TargetLike } from '../../lib/shortcuts';
 import { findCompetitors, type CompetitorMatch } from '../../lib/competitors';
 import AccountsView from './AccountsView';
 import TodayView from './TodayView';
@@ -514,7 +515,7 @@ function BriefSection({
             </div>
           ))}
           <p className="no-print">
-            <button className="link" onClick={onRegenerate}>
+            <button className="link" onClick={onRegenerate} aria-keyshortcuts="r">
               Regenerate
             </button>
           </p>
@@ -641,6 +642,58 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   }, [status, briefStatus]);
 
+  // Keyboard shortcuts (v0.8 step 3): a thin listener over the
+  // pure mapping layer in lib/shortcuts.ts. Actions invoke the
+  // SAME handlers the buttons use (regenerate, copyMarkdown,
+  // window.print, setTab), so every existing guard applies to
+  // the keyboard exactly as to a click. '/' switches to the
+  // Accounts view and bumps the focus signal AccountsView
+  // honours once its search input exists.
+  const [searchFocusSignal, setSearchFocusSignal] = useState(0);
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const action = shortcutFor(
+        {
+          key: e.key,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
+          repeat: e.repeat,
+          targetEditable: isEditableTarget(e.target as TargetLike),
+        },
+        { view, briefDisplayed: briefStatus.kind === 'ready' },
+      );
+      if (!action) return;
+      e.preventDefault();
+      switch (action) {
+        case 'focus-search':
+          setView('accounts');
+          setSearchFocusSignal((n) => n + 1);
+          break;
+        case 'tab-brief':
+          setTab('brief');
+          break;
+        case 'tab-signals':
+          setTab('signals');
+          break;
+        case 'tab-outreach':
+          setTab('outreach');
+          break;
+        case 'regenerate':
+          void regenerate();
+          break;
+        case 'copy-markdown':
+          void copyMarkdown();
+          break;
+        case 'print':
+          window.print();
+          break;
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [view, briefStatus, regenerate, copyMarkdown]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -679,7 +732,10 @@ export default function App() {
     };
   }, [generate]);
 
-  if (view === 'accounts') return <AccountsView onBack={() => setView('current')} />;
+  if (view === 'accounts')
+    return (
+      <AccountsView onBack={() => setView('current')} focusSearchSignal={searchFocusSignal} />
+    );
   if (view === 'today')
     return (
       <TodayView onBack={() => setView('current')} onOpenAccounts={() => setView('accounts')} />
@@ -715,8 +771,12 @@ export default function App() {
           </p>
           {briefStatus.kind === 'ready' && (
             <p className="toolbar no-print">
-              <button onClick={copyMarkdown}>{copied ? 'Copied ✓' : 'Copy as Markdown'}</button>{' '}
-              <button onClick={() => window.print()}>Print / Save as PDF</button>
+              <button onClick={copyMarkdown} aria-keyshortcuts="c">
+                {copied ? 'Copied ✓' : 'Copy as Markdown'}
+              </button>{' '}
+              <button onClick={() => window.print()} aria-keyshortcuts="p">
+                Print / Save as PDF
+              </button>
             </p>
           )}
           <CompetitorBanner detections={status.detections} />
@@ -724,6 +784,7 @@ export default function App() {
             <button
               role="tab"
               aria-selected={tab === 'brief'}
+              aria-keyshortcuts="1"
               className={tab === 'brief' ? 'tab active' : 'tab'}
               onClick={() => setTab('brief')}
             >
@@ -732,6 +793,7 @@ export default function App() {
             <button
               role="tab"
               aria-selected={tab === 'signals'}
+              aria-keyshortcuts="2"
               className={tab === 'signals' ? 'tab active' : 'tab'}
               onClick={() => setTab('signals')}
             >
@@ -740,6 +802,7 @@ export default function App() {
             <button
               role="tab"
               aria-selected={tab === 'outreach'}
+              aria-keyshortcuts="3"
               className={tab === 'outreach' ? 'tab active' : 'tab'}
               onClick={() => setTab('outreach')}
             >
@@ -788,6 +851,10 @@ export default function App() {
             ))}
         </>
       )}
+      <p className="hint no-print">
+        Keyboard shortcuts: / search accounts · 1/2/3 switch tabs · r regenerate · c copy as
+        Markdown · p print
+      </p>
     </main>
   );
 }

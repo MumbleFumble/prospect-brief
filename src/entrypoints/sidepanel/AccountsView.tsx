@@ -588,7 +588,14 @@ function WeightsEditor({ onSaved }: { onSaved: () => Promise<void> }) {
   );
 }
 
-export default function AccountsView({ onBack }: { onBack: () => void }) {
+export default function AccountsView({
+  onBack,
+  focusSearchSignal = 0,
+}: {
+  onBack: () => void;
+  /** Bumped by the App when the '/' shortcut asks for search focus. */
+  focusSearchSignal?: number;
+}) {
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [weights, setWeightsState] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
@@ -596,6 +603,18 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
   const [query, setQuery] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const handledFocusSignal = useRef(0);
+
+  // '/' shortcut (v0.8 step 3): when the App bumps the signal,
+  // focus the search input — once it exists (it renders after
+  // the accounts load). Each signal value is honoured once.
+  useEffect(() => {
+    if (focusSearchSignal > handledFocusSignal.current && searchRef.current) {
+      handledFocusSignal.current = focusSearchSignal;
+      searchRef.current.focus();
+    }
+  }, [focusSearchSignal, accounts.length]);
 
   const reload = useCallback(async () => {
     await migrateSavedBriefsIfNeeded(listSavedBriefs).catch(() => 0);
@@ -695,7 +714,13 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
         <p className="no-print">
           <label>
             Search saved briefs{' '}
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-keyshortcuts="/"
+            />
           </label>
         </p>
       )}
