@@ -55,6 +55,15 @@ export type CollectRequest =
       hiring: HiringSignals | null;
     }
   | {
+      type: 'REGENERATE_SECTION';
+      brief: Brief;
+      section: BriefSectionKey;
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+      hiring: HiringSignals | null;
+    }
+  | {
       type: 'GENERATE_OUTREACH';
       company: string;
       brief: Brief;
@@ -90,6 +99,7 @@ export interface Detection {
 
 import type { Brief } from './brief';
 import type { BriefChange } from './diff';
+import type { BriefSectionKey } from './regenerate';
 import type { HiringSignals } from './hiring';
 import type { OutreachDraft } from './outreach';
 import type { Sequence } from './sequences';

@@ -26,6 +26,7 @@ import {
   type BatchState,
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
+import { regenerateBriefSection, runSectionRegeneration } from '../lib/regenerate';
 import { diffAgainstSavedBrief } from '../lib/diff';
 import { type RunOutcome } from '../lib/run-outcome';
 import { getLatestBatchSummary, listRunsForDomain, recordRun } from '../lib/runs';
@@ -33,6 +34,9 @@ import { generateOutreach } from '../lib/outreach';
 import { generateSequence } from '../lib/sequences';
 import { getSettings } from '../lib/settings';
 import { domainFor, getCachedBrief, setCachedBrief, clearCachedBrief } from '../lib/cache';
+import type { Brief } from '../lib/brief';
+import type { HiringSignals } from '../lib/hiring';
+import type { Detection } from '../lib/types';
 import type {
   BriefResponse,
   OutreachResponse,
@@ -344,6 +348,61 @@ export default defineBackground(() => {
     chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
   });
 
+  /**
+   * Persist a freshly generated brief (inc-032 extraction from
+   * the GENERATE_BRIEF handler, behaviour unchanged): cache it
+   * per domain, append it to saved history, and upsert the
+   * account record with a fresh snapshot — each best-effort.
+   * Shared by GENERATE_BRIEF and REGENERATE_SECTION so a
+   * regenerated section persists through exactly the same flow.
+   */
+  async function persistGeneratedBrief(entry: {
+    domain: string;
+    company: string;
+    url: string;
+    brief: Brief;
+    signals: PageSignals;
+    detections: Detection[];
+    news: NewsItem[];
+    hiring: HiringSignals | null;
+  }): Promise<void> {
+    await setCachedBrief({
+      domain: entry.domain,
+      brief: entry.brief,
+      signals: entry.signals,
+      detections: entry.detections,
+      news: entry.news,
+      hiring: entry.hiring,
+    }).catch((e) => console.warn('Cache write failed:', e));
+    await saveBrief({
+      company: entry.company,
+      domain: entry.domain,
+      url: entry.url,
+      brief: entry.brief,
+      detections: entry.detections,
+      news: entry.news,
+      hiring: entry.hiring,
+    }).catch((e) => console.warn('Save failed:', e));
+    await upsertAccount(
+      entry.domain,
+      entry.company,
+      entry.url,
+      (account) =>
+        applySnapshot(
+          account,
+          {
+            takenAt: Date.now(),
+            detections: entry.detections,
+            news: entry.news,
+            hiring: entry.hiring,
+            detectionQuality: 'full',
+          },
+          entry.brief,
+        ),
+      Date.now(),
+    ).catch((e) => console.warn('Account upsert failed:', e));
+  }
+
   chrome.runtime.onMessage.addListener((msg: CollectRequest, _sender, sendResponse) => {
     if (msg.type === 'COLLECT_SIGNALS') {
       const pending = pendingByTab.get(msg.tabId);
@@ -377,53 +436,35 @@ export default defineBackground(() => {
           const changes = await diffAgainstSavedBrief(domain, brief, listSavedBriefs).catch(
             () => null,
           );
-          await setCachedBrief({
-            domain,
-            brief,
-            signals: msg.signals,
-            detections: msg.detections,
-            news: msg.news,
-            hiring: msg.hiring,
-          }).catch((e) => console.warn('Cache write failed:', e));
-          // Also persist to saved history (best-effort, never expires).
           const company = companyQueryFor(
             msg.signals.dom.url,
             msg.signals.dom.title,
             msg.signals.dom.ogTags,
           );
-          await saveBrief({
-            company,
+          await persistGeneratedBrief({
             domain,
+            company,
             url: msg.signals.dom.url,
             brief,
+            signals: msg.signals,
             detections: msg.detections,
             news: msg.news,
             hiring: msg.hiring,
-          }).catch((e) => console.warn('Save failed:', e));
-          // Upsert the account record (v0.3 store) with a fresh snapshot.
-          await upsertAccount(
-            domain,
-            company,
-            msg.signals.dom.url,
-            (account) =>
-              applySnapshot(
-                account,
-                {
-                  takenAt: Date.now(),
-                  detections: msg.detections,
-                  news: msg.news,
-                  hiring: msg.hiring,
-                  detectionQuality: 'full',
-                },
-                brief,
-              ),
-            Date.now(),
-          ).catch((e) => console.warn('Account upsert failed:', e));
+          });
           return { ok: true, brief, changes };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       })().then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'REGENERATE_SECTION') {
+      runSectionRegeneration(msg, {
+        getSettings,
+        regenerate: regenerateBriefSection,
+        listSaved: listSavedBriefs,
+        persist: persistGeneratedBrief,
+      }).then(sendResponse);
       return true;
     }
     if (msg.type === 'GENERATE_OUTREACH') {

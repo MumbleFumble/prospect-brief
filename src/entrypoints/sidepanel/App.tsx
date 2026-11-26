@@ -16,6 +16,17 @@ import type {
 import type { OutreachDraft } from '../../lib/outreach';
 import type { HiringSignals } from '../../lib/hiring';
 import { getSettings } from '../../lib/settings';
+import {
+  estimateSectionRegeneration,
+  type BriefSectionKey,
+} from '../../lib/regenerate';
+import {
+  initialSectionRegenState,
+  sectionRegenFailed,
+  sectionRegenSucceeded,
+  startSectionRegen,
+  type SectionRegenState,
+} from '../../lib/section-regen-state';
 import { findCompetitors, type CompetitorMatch } from '../../lib/competitors';
 import AccountsView from './AccountsView';
 import TodayView from './TodayView';
@@ -369,16 +380,75 @@ function BriefItemList({
   );
 }
 
+const SECTION_LABEL: Record<BriefSectionKey, string> = {
+  overview: 'overview',
+  talkingPoints: 'talking points',
+  risks: 'risks',
+  opportunities: 'opportunities',
+};
+
+/**
+ * One section's Regenerate control (inc-032): a real button with
+ * a section-named label, the section's token estimate beside it,
+ * its own busy announcement, and its own error slot — busy and
+ * error render only inside this section's area, and only this
+ * section's button is disabled while it regenerates.
+ */
+function SectionRegenControl({
+  section,
+  regen,
+  estimate,
+  onRegenerateSection,
+}: {
+  section: BriefSectionKey;
+  regen: SectionRegenState;
+  estimate?: number;
+  onRegenerateSection: (section: BriefSectionKey) => void;
+}) {
+  const label = SECTION_LABEL[section];
+  const busy = regen.busy[section] === true;
+  const error = regen.errors[section];
+  return (
+    <div className="no-print">
+      <p>
+        <button className="link" disabled={busy} onClick={() => onRegenerateSection(section)}>
+          {busy ? `Regenerating ${label}…` : `Regenerate ${label}`}
+        </button>
+        {estimate != null && <span className="hint"> ≈{estimate} tokens</span>}
+      </p>
+      {busy && (
+        <p className="hint" aria-live="polite">
+          Regenerating {label}…
+        </p>
+      )}
+      {error && (
+        <div role="alert">
+          <p>
+            <strong>Couldn&apos;t regenerate this section.</strong>
+          </p>
+          <p>{error}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BriefSection({
   status,
   news,
   detections,
   onRegenerate,
+  sectionRegen,
+  sectionEstimates,
+  onRegenerateSection,
 }: {
   status: BriefStatus;
   news: NewsItem[];
   detections: Detection[];
   onRegenerate: () => void;
+  sectionRegen: SectionRegenState;
+  sectionEstimates: Partial<Record<BriefSectionKey, number>>;
+  onRegenerateSection: (section: BriefSectionKey) => void;
 }) {
   return (
     <section>
@@ -420,6 +490,12 @@ function BriefSection({
               </small>
             </p>
           )}
+          <SectionRegenControl
+            section="overview"
+            regen={sectionRegen}
+            estimate={sectionEstimates.overview}
+            onRegenerateSection={onRegenerateSection}
+          />
           {briefSections(status.brief).map((section) => (
             <div key={section.key}>
               <h3>{SECTION_HEADING[section.key]}</h3>
@@ -428,6 +504,12 @@ function BriefSection({
                 defaultBasis={section.defaultBasis}
                 news={news}
                 detections={detections}
+              />
+              <SectionRegenControl
+                section={section.key}
+                regen={sectionRegen}
+                estimate={sectionEstimates[section.key]}
+                onRegenerateSection={onRegenerateSection}
               />
             </div>
           ))}
@@ -477,6 +559,68 @@ export default function App() {
     await chrome.runtime.sendMessage({ type: 'CLEAR_CACHE', url: status.signals.dom.url });
     await generate(status.signals, status.detections, status.news, status.hiring);
   }, [status, generate]);
+
+  const [sectionRegen, setSectionRegen] = useState<SectionRegenState>(initialSectionRegenState);
+  const [sectionEstimates, setSectionEstimates] = useState<
+    Partial<Record<BriefSectionKey, number>>
+  >({});
+
+  // Per-section token estimates from the library's exported
+  // estimator (inc-031) — never recomputed UI-side. They depend
+  // on the signals and the seller profile only, so they are
+  // computed once the page signals are ready.
+  useEffect(() => {
+    if (status.kind !== 'ready') return;
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const sections: BriefSectionKey[] = ['overview', 'talkingPoints', 'risks', 'opportunities'];
+        const estimates = {} as Record<BriefSectionKey, number>;
+        for (const section of sections) {
+          estimates[section] = estimateSectionRegeneration(
+            section,
+            status.signals,
+            status.detections,
+            status.news,
+            s.sellerProfile,
+            status.hiring,
+          );
+        }
+        setSectionEstimates(estimates);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  const regenerateSection = useCallback(
+    async (section: BriefSectionKey) => {
+      if (status.kind !== 'ready' || briefStatus.kind !== 'ready') return;
+      setSectionRegen((s) => startSectionRegen(s, section));
+      const res = (await chrome.runtime.sendMessage({
+        type: 'REGENERATE_SECTION',
+        brief: briefStatus.brief,
+        section,
+        signals: status.signals,
+        detections: status.detections,
+        news: status.news,
+        hiring: status.hiring,
+      })) as BriefResponse;
+      if (res.ok) {
+        // The library guarantees only the target section changed;
+        // the displayed brief becomes the returned brief as-is.
+        setBriefStatus({ kind: 'ready', brief: res.brief, changes: res.changes });
+        setSectionRegen((s) => sectionRegenSucceeded(s, section));
+      } else {
+        // Failure: the displayed brief is left exactly as it was;
+        // the named error lands in this section's slot only.
+        setSectionRegen((s) => sectionRegenFailed(s, section, res.error));
+      }
+    },
+    [status, briefStatus],
+  );
 
   const copyMarkdown = useCallback(async () => {
     if (status.kind !== 'ready' || briefStatus.kind !== 'ready') return;
@@ -608,6 +752,9 @@ export default function App() {
               news={status.news}
               detections={status.detections}
               onRegenerate={regenerate}
+              sectionRegen={sectionRegen}
+              sectionEstimates={sectionEstimates}
+              onRegenerateSection={regenerateSection}
             />
           )}
           {tab === 'signals' && (

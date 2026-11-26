@@ -10,9 +10,13 @@ import {
   toStructuredOutputSchema,
   type Brief,
 } from './brief';
+import { domainFor } from './cache';
+import { diffAgainstSavedBrief } from './diff';
 import type { HiringSignals } from './hiring';
-import type { SellerProfile } from './settings';
-import type { Detection, NewsItem, PageSignals } from './types';
+import { companyQueryFor } from './news';
+import type { SavedBrief } from './saved';
+import type { SellerProfile, Settings } from './settings';
+import type { BriefResponse, Detection, NewsItem, PageSignals } from './types';
 
 /**
  * Per-section regenerate (v0.8 step 1a, library layer).
@@ -333,4 +337,86 @@ export async function regenerateBriefSection(
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/* ------------------------------------------------------------------ */
+/* Background-message orchestration (inc-032)                          */
+/* ------------------------------------------------------------------ */
+
+/** The REGENERATE_SECTION message payload (types.ts CollectRequest). */
+export interface SectionRegenRequest {
+  brief: Brief;
+  section: BriefSectionKey;
+  signals: PageSignals;
+  detections: Detection[];
+  news: NewsItem[];
+  hiring: HiringSignals | null;
+}
+
+/** What runSectionRegeneration needs from the background worker. */
+export interface SectionRegenDeps {
+  getSettings: () => Promise<Settings>;
+  regenerate: typeof regenerateBriefSection;
+  listSaved: () => Promise<SavedBrief[]>;
+  /**
+   * Persist a freshly generated brief exactly as GENERATE_BRIEF
+   * does (cache + saved history + account upsert, best-effort
+   * inside). Called ONLY on success, after the diff is captured.
+   */
+  persist: (entry: {
+    domain: string;
+    company: string;
+    url: string;
+    brief: Brief;
+    signals: PageSignals;
+    detections: Detection[];
+    news: NewsItem[];
+    hiring: HiringSignals | null;
+  }) => Promise<void>;
+}
+
+/**
+ * The REGENERATE_SECTION handler logic, factored out of
+ * background.ts so it is testable (the batch-engine precedent).
+ * Mirrors GENERATE_BRIEF: on success the diff against the
+ * previously saved brief is captured BEFORE persistence replaces
+ * it, the new brief is persisted through the same flow, and the
+ * response is the shared BriefResponse shape. On failure the
+ * response carries the named error and NOTHING is persisted —
+ * the diff is not even captured.
+ */
+export async function runSectionRegeneration(
+  msg: SectionRegenRequest,
+  deps: SectionRegenDeps,
+): Promise<BriefResponse> {
+  try {
+    const { apiKey, model, sellerProfile } = await deps.getSettings();
+    const { brief } = await deps.regenerate(
+      apiKey,
+      model,
+      msg.brief,
+      msg.section,
+      msg.signals,
+      msg.detections,
+      msg.news,
+      sellerProfile,
+      msg.hiring,
+    );
+    const domain = domainFor(msg.signals.dom.url);
+    const changes = await diffAgainstSavedBrief(domain, brief, deps.listSaved).catch(() => null);
+    const company = companyQueryFor(msg.signals.dom.url, msg.signals.dom.title, msg.signals.dom.ogTags);
+    await deps.persist({
+      domain,
+      company,
+      url: msg.signals.dom.url,
+      brief,
+      signals: msg.signals,
+      detections: msg.detections,
+      news: msg.news,
+      hiring: msg.hiring,
+    });
+    return { ok: true, brief, changes };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

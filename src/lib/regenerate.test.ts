@@ -11,10 +11,12 @@ import {
   buildSectionPrompt,
   estimateSectionRegeneration,
   regenerateBriefSection,
+  runSectionRegeneration,
   SECTION_JSON_SCHEMAS,
   SECTION_RESPONSE_SCHEMAS,
   validateSectionResponse,
   type BriefSectionKey,
+  type SectionRegenDeps,
 } from './regenerate';
 import type { Detection, NewsItem, PageSignals } from './types';
 
@@ -224,6 +226,87 @@ describe('section schema derivation (drift guard)', () => {
       expect(Object.keys(properties).sort()).toEqual(Object.keys(shape).sort());
     },
   );
+});
+
+describe('runSectionRegeneration (REGENERATE_SECTION handler logic)', () => {
+  const NEW_BRIEF: Brief = {
+    ...structuredClone(EXISTING),
+    risks: [{ point: 'New risk.', sourceRefs: [], stackRefs: [], basis: 'inference' }],
+  };
+
+  function makeDeps(overrides: Partial<SectionRegenDeps> = {}) {
+    const events: string[] = [];
+    const persisted: unknown[] = [];
+    const deps: SectionRegenDeps = {
+      getSettings: async () => ({
+        apiKey: 'key',
+        model: 'model',
+        sellerProfile: { whatYouSell: '', idealCustomer: '', valueProps: [], competitors: [] },
+      }),
+      regenerate: async () => ({ brief: structuredClone(NEW_BRIEF), stopReason: 'end_turn' }),
+      listSaved: async () => {
+        events.push('listSaved');
+        return [
+          {
+            id: 'example.com:1',
+            company: 'Example',
+            domain: 'example.com',
+            url: 'https://example.com/',
+            brief: structuredClone(EXISTING),
+            detections: [],
+            news: [],
+            hiring: null,
+            savedAt: 1,
+          },
+        ];
+      },
+      persist: async (entry) => {
+        events.push('persist');
+        persisted.push(entry);
+      },
+      ...overrides,
+    };
+    return { deps, events, persisted };
+  }
+
+  const msg = {
+    brief: EXISTING,
+    section: 'risks' as const,
+    signals,
+    detections,
+    news,
+    hiring: null,
+  };
+
+  it('success: returns the new brief, captures the diff BEFORE persisting, persists the new brief', async () => {
+    const { deps, events, persisted } = makeDeps();
+    const res = await runSectionRegeneration(msg, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Only the target section changed in the returned brief.
+    expect(res.brief.risks[0].point).toBe('New risk.');
+    expect(res.brief.talkingPoints).toEqual(EXISTING.talkingPoints);
+    expect(res.brief.overview).toBe(EXISTING.overview);
+    // The diff was captured (the risks change is in it) and the
+    // capture read happened before persistence replaced the entry.
+    expect(res.changes?.some((c) => c.section === 'risks')).toBe(true);
+    expect(events).toEqual(['listSaved', 'persist']);
+    expect(persisted).toHaveLength(1);
+    expect((persisted[0] as { brief: Brief }).brief.risks[0].point).toBe('New risk.');
+    expect((persisted[0] as { domain: string }).domain).toBe('example.com');
+  });
+
+  it('failure: returns the named error and persists NOTHING (no diff capture either)', async () => {
+    const { deps, events, persisted } = makeDeps({
+      regenerate: async () => {
+        throw new Error('Invalid section response: invalid-json');
+      },
+    });
+    const res = await runSectionRegeneration(msg, deps);
+    expect(res).toEqual({ ok: false, error: 'Invalid section response: invalid-json' });
+    expect(persisted).toHaveLength(0);
+    expect(events).toEqual([]);
+  });
 });
 
 describe('cost discipline', () => {
