@@ -37,13 +37,15 @@ Prospect Brief turns any company website into a one-page sales brief in seconds.
 
 - No backend server. No analytics. No tracking.
 - Your Anthropic API key stays in your browser (chrome.storage.local) and is only sent to api.anthropic.com.
-- Everything is stored locally, on your device: your settings and seller profile, cached briefs (24 hours), saved briefs, account records in IndexedDB (signal snapshots, notes, and outreach touches), batch queue state, and scoring weights.
+- Everything is stored locally, on your device: your settings and seller profile, cached briefs (24 hours), saved briefs, account records in IndexedDB (signal snapshots, notes, and outreach touches), per-generation run records in the same database, batch queue state, and scoring weights.
 - Page analysis runs locally. The only network calls are to Anthropic (brief, outreach, and sequence generation — page signals, headlines, hiring signals, and your seller profile if you set one), Google News (headline search), the public Greenhouse / Lever / Ashby job-board APIs (hiring signals, using the board identifier from the company's own site), and the prospect websites you research (their homepage HTML, fetched for batch research and watch re-checks).
 
 **Export**
 
-- Copy as Markdown for your CRM or notes.
+- Back up account records to a JSON file, and export saved briefs to CSV.
+- Copy as Markdown for your CRM or notes, or copy a saved brief as a plain-text CRM note.
 - Print / Save as PDF for a clean one-pager.
+- No export contains your API key or settings — exports contain briefs and account records only.
 
 **Requirements**
 

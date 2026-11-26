@@ -1,6 +1,6 @@
 # Privacy Policy — Prospect Brief
 
-**Last updated:** November 21, 2026
+**Last updated:** November 25, 2026
 
 Prospect Brief is a Chrome extension that generates one-page sales briefs for company websites. This policy explains what data the extension handles and how.
 
@@ -12,10 +12,11 @@ All of the following stays on your device, in your browser's storage for this ex
 - **Cached briefs.** Completed briefs are cached per-domain in `chrome.storage.local` (key `brief:<domain>`, including the brief, the collected page signals, detections, news, and hiring signals) for 24 hours to avoid repeat API calls. A stale entry is removed the next time it is read. You can clear a domain's cache anytime with the Regenerate button.
 - **Saved briefs.** Every generated brief is also saved to a history list in `chrome.storage.local` (key `saved:briefs`). Saved briefs do not expire; the list is capped at the 100 most recent (one per domain). You can delete individual saved briefs or clear the list.
 - **Account records.** Briefs and research are kept as account records in an IndexedDB database named `prospect-brief` (object store `accounts`, keyed by domain). Each record holds the latest brief, timestamped signal snapshots (detections, news, and hiring signals; capped at the 10 most recent per account), a pipeline status, any notes you write, a log of outreach touches you draft or mark sent, and — for watched accounts — the watch state and change events. Account records persist until you delete the account or uninstall the extension. A one-time migration flag (`accounts:migrated:v1` in `chrome.storage.local`) records that your pre-v0.3 saved briefs were converted into account records; the old saved-briefs list is left in place.
+- **Run records.** The same IndexedDB database has a second object store (`runs`) holding one record per brief generation: the domain, the finish time, the outcome (completed, partial, or failed, with the reason), and the batch id for batch runs. Run records are capped at the 500 most recent and are used to show batch run summaries and to resume interrupted batches.
 - **Batch queue state.** If you start batch research, the queue (the domains, their per-item status, and a processor heartbeat) is stored in `chrome.storage.local` (key `batch:state`) so an interrupted batch can resume.
 - **Scoring weights.** If you adjust the account-scoring weights, your weights are stored in `chrome.storage.local` (key `scoringWeights`).
 
-You can also export your account records to a JSON file from the extension. That file is created only when you choose to export, and it goes only where you save it.
+You can also take your data out of the extension, always by your own action: export your account records to a JSON file; export your saved briefs to a CSV file; copy a brief as Markdown text; copy a saved brief as a plain-text CRM note; or print a brief / save it as PDF. Exported files and copied text are created only when you choose to export or copy, they go only where you save or paste them, and none of them contains your API key or any of your settings — exports contain briefs and account records only.
 
 ## Data sent over the network
 
@@ -34,7 +35,7 @@ No data is sent to any other third party. There is no backend server operated by
 
 ## Data retention
 
-Cached briefs expire automatically after 24 hours. Saved briefs persist until you delete them or clear the list (capped at 100). Account records, your settings and seller profile, scoring weights, and batch queue state persist until you delete or change them. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.
+Cached briefs expire automatically after 24 hours. Saved briefs persist until you delete them or clear the list (capped at 100). Run records persist until the 500-record cap pushes the oldest out. Account records, your settings and seller profile, scoring weights, and batch queue state persist until you delete or change them. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.
 
 ## Contact
 

@@ -11,7 +11,7 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
 </head>
 <body>
 <h1>Privacy Policy — Prospect Brief</h1>
-<p><strong>Last updated:</strong> November 22, 2026</p>
+<p><strong>Last updated:</strong> November 25, 2026</p>
 <p>Prospect Brief is a Chrome extension that generates one-page sales briefs for company websites. This policy explains what data the extension handles and how.</p>
 
 <h2>Data stored locally</h2>
@@ -21,10 +21,11 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
 <li><strong>Cached briefs.</strong> Completed briefs are cached per-domain in <code>chrome.storage.local</code> (key <code>brief:&lt;domain&gt;</code>, including the brief, the collected page signals, detections, news, and hiring signals) for 24 hours to avoid repeat API calls. A stale entry is removed the next time it is read. You can clear a domain's cache anytime with the Regenerate button.</li>
 <li><strong>Saved briefs.</strong> Every generated brief is also saved to a history list in <code>chrome.storage.local</code> (key <code>saved:briefs</code>). Saved briefs do not expire; the list is capped at the 100 most recent (one per domain). You can delete individual saved briefs or clear the list.</li>
 <li><strong>Account records.</strong> Briefs and research are kept as account records in an IndexedDB database named <code>prospect-brief</code> (object store <code>accounts</code>, keyed by domain). Each record holds the latest brief, timestamped signal snapshots (detections, news, and hiring signals; capped at the 10 most recent per account), a pipeline status, any notes you write, a log of outreach touches you draft or mark sent, and — for watched accounts — the watch state and change events. Account records persist until you delete the account or uninstall the extension. A one-time migration flag (<code>accounts:migrated:v1</code> in <code>chrome.storage.local</code>) records that your pre-v0.3 saved briefs were converted into account records; the old saved-briefs list is left in place.</li>
+<li><strong>Run records.</strong> The same IndexedDB database has a second object store (<code>runs</code>) holding one record per brief generation: the domain, the finish time, the outcome (completed, partial, or failed, with the reason), and the batch id for batch runs. Run records are capped at the 500 most recent and are used to show batch run summaries and to resume interrupted batches.</li>
 <li><strong>Batch queue state.</strong> If you start batch research, the queue (the domains, their per-item status, and a processor heartbeat) is stored in <code>chrome.storage.local</code> (key <code>batch:state</code>) so an interrupted batch can resume.</li>
 <li><strong>Scoring weights.</strong> If you adjust the account-scoring weights, your weights are stored in <code>chrome.storage.local</code> (key <code>scoringWeights</code>).</li>
 </ul>
-<p>You can also export your account records to a JSON file from the extension. That file is created only when you choose to export, and it goes only where you save it.</p>
+<p>You can also take your data out of the extension, always by your own action: export your account records to a JSON file; export your saved briefs to a CSV file; copy a brief as Markdown text; copy a saved brief as a plain-text CRM note; or print a brief / save it as PDF. Exported files and copied text are created only when you choose to export or copy, they go only where you save or paste them, and none of them contains your API key or any of your settings — exports contain briefs and account records only.</p>
 
 <h2>Data sent over the network</h2>
 <ol>
@@ -43,7 +44,7 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin-top: 1.5rem; }
 </ul>
 
 <h2>Data retention</h2>
-<p>Cached briefs expire automatically after 24 hours. Saved briefs persist until you delete them or clear the list (capped at 100). Account records, your settings and seller profile, scoring weights, and batch queue state persist until you delete or change them. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.</p>
+<p>Cached briefs expire automatically after 24 hours. Saved briefs persist until you delete them or clear the list (capped at 100). Run records persist until the 500-record cap pushes the oldest out. Account records, your settings and seller profile, scoring weights, and batch queue state persist until you delete or change them. Your API key persists until you change or remove it in the Options page. Uninstalling the extension removes all locally stored data.</p>
 
 <h2>Contact</h2>
 <p>For questions about this policy, open an issue at <a href="https://github.com/MumbleFumble/prospect-brief">github.com/MumbleFumble/prospect-brief</a>.</p>
