@@ -8,12 +8,23 @@ const SECTION_HEADING: Record<string, string> = {
   opportunities: 'Opportunities',
 };
 
+/**
+ * Collapse embedded line breaks in interpolated text to single
+ * spaces. Brief content is model-generated from untrusted
+ * prospect pages; a raw newline would let it break out of its
+ * line and inject Markdown structure (headings, lists) into the
+ * exported document.
+ */
+function oneLine(text: string): string {
+  return text.replace(/[\r\n]+/g, ' ');
+}
+
 function itemLine(item: BriefItem, index: number, defaultBasis: BriefItem['basis']): string {
   const refs = item.sourceRefs.map((r) => `[${r + 1}]`).join('');
   const srefs = (item.stackRefs ?? []).map((r) => `[S${r + 1}]`).join('');
   const basis = item.basis && item.basis !== defaultBasis ? ` _(${item.basis})_` : '';
   const allRefs = [refs, srefs].filter(Boolean).join(' ');
-  return `${index + 1}. ${item.point}${allRefs ? ` ${allRefs}` : ''}${basis}`;
+  return `${index + 1}. ${oneLine(item.point)}${allRefs ? ` ${allRefs}` : ''}${basis}`;
 }
 
 /**
@@ -28,10 +39,10 @@ export function briefToMarkdown(
   news: NewsItem[],
 ): string {
   const lines: string[] = [];
-  lines.push(`# Prospect Brief: ${company}`, '');
+  lines.push(`# Prospect Brief: ${oneLine(company)}`, '');
   lines.push(`Source: ${url}`, '');
   lines.push('## Overview', '');
-  lines.push(brief.overview, '');
+  lines.push(oneLine(brief.overview), '');
 
   // Item sections come from the shared display model
   // (brief-sections.ts) — the same sections, order and omission
@@ -57,7 +68,10 @@ export function briefToMarkdown(
     lines.push('## Recent News', '');
     news.forEach((n, i) => {
       const date = n.pubDate ? ` — ${n.pubDate.slice(0, 10)}` : '';
-      lines.push(`[${i + 1}] [${n.title}](${n.link}) (${n.source ?? 'unknown'}${date})`);
+      // Escape brackets in the (feed-supplied) title so it
+      // cannot break out of the [title](link) syntax.
+      const title = oneLine(n.title).replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+      lines.push(`[${i + 1}] [${title}](${n.link}) (${n.source ?? 'unknown'}${date})`);
     });
     lines.push('');
   }

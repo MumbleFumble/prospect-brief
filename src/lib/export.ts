@@ -49,7 +49,9 @@ function csvEscape(v: string): string {
   // talking points are model-generated from untrusted prospect-page
   // content, so every CSV cell passes through this choke point.
   const guarded = /^[\t\r]?[=+\-@]/.test(v) ? `'${v}` : v;
-  return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
+  // Quote when the cell carries a quote, comma, LF or CR — a
+  // bare CR would otherwise split the row in CR-aware parsers.
+  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 /** Export saved briefs as CSV (one row per brief). */

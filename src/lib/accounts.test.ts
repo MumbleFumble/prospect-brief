@@ -165,6 +165,17 @@ describe('export / import', () => {
     ).toThrowError('No valid account records in the file.');
   });
 
+  it('round-trips hostile text verbatim through the JSON backup', () => {
+    const hostile = emptyAccount('x.com', '<script>alert(1)</script>', 'https://x.com', 0);
+    hostile.notes = 'Line one\nLine two, with "quotes" and =formula';
+    const parsed = parseAccountsImport(exportAccountsJson([hostile]));
+    // JSON.stringify escaping is the whole rule for this surface:
+    // hostile strings come back byte-identical, never interpreted.
+    expect(parsed).toEqual([hostile]);
+    expect(parsed[0].company).toBe('<script>alert(1)</script>');
+    expect(parsed[0].notes).toBe('Line one\nLine two, with "quotes" and =formula');
+  });
+
   it('exports a backup containing no API key or settings keys (pinned)', () => {
     const a = applySnapshot(emptyAccount('x.com', 'X', 'https://x.com', 0), snap(1), brief);
     const json = exportAccountsJson([a]);

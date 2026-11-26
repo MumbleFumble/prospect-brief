@@ -78,4 +78,59 @@ describe('briefToMarkdown', () => {
     expect(md).not.toContain('## Risks');
     expect(md).not.toContain('## Opportunities');
   });
+
+  it('collapses embedded newlines in brief text so content cannot break out as structure', () => {
+    const hostile: Brief = {
+      ...BRIEF,
+      overview: 'Real overview.\n\n## Injected heading',
+      talkingPoints: [
+        { point: 'A point.\n- injected list item', sourceRefs: [], stackRefs: [], basis: 'news' },
+      ],
+    };
+    const md = briefToMarkdown('Acme', 'https://acme.com/', hostile, [], []);
+    // The hostile text survives as literal text, but no LINE of
+    // the export may begin with the injected structure.
+    const lines = md.split('\n');
+    expect(lines.some((l) => l.startsWith('## Injected heading'))).toBe(false);
+    expect(lines.some((l) => l.startsWith('- injected list item'))).toBe(false);
+    expect(md).toContain('Real overview. ## Injected heading');
+    expect(md).toContain('1. A point. - injected list item');
+  });
+
+  it('keeps marker-leading point text contained by the numbered-item prefix', () => {
+    const hostile: Brief = {
+      ...BRIEF,
+      talkingPoints: [
+        { point: '# Heading-like', sourceRefs: [], stackRefs: [], basis: 'news' },
+        { point: '> Quote-like', sourceRefs: [], stackRefs: [], basis: 'news' },
+      ],
+    };
+    const md = briefToMarkdown('Acme', 'https://acme.com/', hostile, [], []);
+    // The '1. ' / '2. ' prefixes keep the markers mid-line, so
+    // they render as literal text, not as document structure.
+    expect(md).toContain('1. # Heading-like');
+    expect(md).toContain('2. > Quote-like');
+    expect(md.split('\n').filter((l) => l.startsWith('# Heading-like'))).toHaveLength(0);
+  });
+
+  it('escapes brackets in news titles so link syntax cannot break out', () => {
+    const md = briefToMarkdown(
+      'Acme',
+      'https://acme.com/',
+      BRIEF,
+      [],
+      [
+        {
+          title: 'Big news ](https://evil.example) more',
+          link: 'https://news.example/1',
+          pubDate: null,
+          source: 'TC',
+        },
+      ],
+    );
+    expect(md).toContain('[Big news \\](https://evil.example) more](https://news.example/1)');
+    // The unescaped breakout — the title closing the link text
+    // early and making evil.example the target — must not occur:
+    expect(md).not.toContain('[Big news ](https://evil.example)');
+  });
 });

@@ -102,4 +102,45 @@ describe('savedBriefsToCsv formula-injection guard', () => {
     expect(csv.split('\n')[1]).toContain(',42,');
     expect(csv).not.toContain("'42");
   });
+
+  it('quotes a cell carrying a bare carriage return so the row cannot split', () => {
+    const hostile: SavedBrief = {
+      ...SAVED,
+      brief: { ...SAVED.brief, overview: 'First line\rSecond line' },
+    };
+    const csv = savedBriefsToCsv([hostile]);
+    // The protection is RFC 4180 quoting: inside a quoted cell
+    // a bare \r is data; unquoted, CR-aware spreadsheet parsers
+    // would split the row at it.
+    expect(csv).toContain('"First line\rSecond line"');
+  });
+
+  it('keeps HTML-looking text verbatim in a quoted cell (inert in a spreadsheet)', () => {
+    const hostile: SavedBrief = {
+      ...SAVED,
+      brief: { ...SAVED.brief, overview: '<script>alert(1)</script>, with comma' },
+    };
+    const csv = savedBriefsToCsv([hostile]);
+    expect(csv).toContain('"<script>alert(1)</script>, with comma"');
+  });
+});
+
+describe('briefToCrmNote hostile text', () => {
+  it('carries HTML-looking and marker-leading text verbatim (plain-text surface)', () => {
+    const hostile: SavedBrief = {
+      ...SAVED,
+      company: '<img src=x onerror=alert(1)>',
+      brief: {
+        ...SAVED.brief,
+        overview: '# Not a heading here\n<script>alert(1)</script>',
+        talkingPoints: [{ point: '> quoted', sourceRefs: [], stackRefs: [], basis: 'news' }],
+      },
+    };
+    const note = briefToCrmNote(hostile);
+    // The CRM note is plain text pasted by the user; verbatim is
+    // the correct, inert behaviour for this surface.
+    expect(note).toContain('<img src=x onerror=alert(1)>');
+    expect(note).toContain('# Not a heading here\n<script>alert(1)</script>');
+    expect(note).toContain('1. [news] > quoted');
+  });
 });
