@@ -22,6 +22,7 @@ import { sequenceToTouches } from '../../lib/sequences';
 import type { SequenceResponse } from '../../lib/types';
 import { listSavedBriefs, type SavedBrief } from '../../lib/saved';
 import { briefToCrmNote, savedBriefsToCsv } from '../../lib/export';
+import { queryWords, searchAccounts } from '../../lib/search';
 import {
   MAX_BATCH,
   batchProgress,
@@ -592,6 +593,7 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [weights, setWeightsState] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
   const [sort, setSort] = useState<'score' | 'recent'>('score');
+  const [query, setQuery] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -633,6 +635,25 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
     }
   }
 
+  // Search (v0.8 step 2): with a query active the list is the
+  // lib filter's matches, newest first, regardless of the sort
+  // control; with no query the existing sort behaviour applies
+  // exactly. Exports above always use the FULL accounts list.
+  const queryActive = queryWords(query).length > 0;
+  const displayed = queryActive
+    ? searchAccounts(accounts, query).map((account) => ({
+        account,
+        score: scoreAccount(account, profile, weights, Date.now()),
+      }))
+    : accounts
+        .map((account) => ({
+          account,
+          score: scoreAccount(account, profile, weights, Date.now()),
+        }))
+        .sort((a, b) =>
+          sort === 'score' ? b.score.total - a.score.total : b.account.updatedAt - a.account.updatedAt,
+        );
+
   return (
     <main>
       <h1>Accounts</h1>
@@ -670,6 +691,14 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
           <small>Import failed: {importError}</small>
         </p>
       )}
+      {accounts.length > 0 && (
+        <p className="no-print">
+          <label>
+            Search saved briefs{' '}
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+        </p>
+      )}
       {accounts.length > 1 && (
         <p className="no-print">
           <label>
@@ -682,17 +711,12 @@ export default function AccountsView({ onBack }: { onBack: () => void }) {
         </p>
       )}
       <WeightsEditor onSaved={reload} />
-      {accounts
-        .map((account) => ({
-          account,
-          score: scoreAccount(account, profile, weights, Date.now()),
-        }))
-        .sort((a, b) =>
-          sort === 'score' ? b.score.total - a.score.total : b.account.updatedAt - a.account.updatedAt,
-        )
-        .map(({ account, score }) => (
-          <AccountCard key={account.domain} account={account} score={score} onChange={reload} />
-        ))}
+      {queryActive && displayed.length === 0 && (
+        <p>No saved briefs match &ldquo;{query.trim()}&rdquo;.</p>
+      )}
+      {displayed.map(({ account, score }) => (
+        <AccountCard key={account.domain} account={account} score={score} onChange={reload} />
+      ))}
     </main>
   );
 }
