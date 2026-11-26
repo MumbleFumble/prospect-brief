@@ -129,7 +129,7 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
   'maximum',
 ]);
 
-function toStructuredOutputSchema(node: unknown): unknown {
+export function toStructuredOutputSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(toStructuredOutputSchema);
   if (typeof node !== 'object' || node === null) return node;
   const out: Record<string, unknown> = {};
@@ -182,7 +182,15 @@ export const BRIEF_MAX_OUTPUT_TOKENS = 4096;
  */
 export const BRIEF_MAX_TOTAL_TOKENS = 8192;
 
-export function buildPrompt(
+/**
+ * The signal-context prefix of the generation prompt: the task
+ * intro, the website text, the detected stack, the headlines,
+ * and the hiring / competitor / seller sections — everything
+ * before the RULES block. Extracted (inc-031) so the per-section
+ * regenerate prompt can ground on exactly the same context;
+ * buildPrompt's output is byte-identical to before.
+ */
+export function buildPromptContext(
   signals: PageSignals,
   detections: Detection[],
   news: NewsItem[],
@@ -236,11 +244,6 @@ ${seller.valueProps.map((v, i) => `${i + 1}. ${v}`).join('\n') || '(none listed)
 `
       : '';
 
-  const talkingPointRule =
-    seller && seller.whatYouSell.trim()
-      ? `- Every talking point must connect one of the seller's value props to a specific observed signal (tech stack item, headline, or site fact). Lead with the prospect's situation, then the relevant value prop.`
-      : `- Every talking point must reference at least one headline by its [index] in sourceRefs.`;
-
   return `You are writing a one-page sales prospect brief for the company behind this website.
 
 WEBSITE
@@ -255,7 +258,22 @@ ${stack || '(none detected)'}
 RECENT NEWS HEADLINES
 ${headlines || '(none found)'}
 
-${hiringSection}${competitorSection}${sellerSection}RULES
+${hiringSection}${competitorSection}${sellerSection}`;
+}
+
+export function buildPrompt(
+  signals: PageSignals,
+  detections: Detection[],
+  news: NewsItem[],
+  seller: SellerProfile | null,
+  hiring: HiringSignals | null = null,
+): string {
+  const talkingPointRule =
+    seller && seller.whatYouSell.trim()
+      ? `- Every talking point must connect one of the seller's value props to a specific observed signal (tech stack item, headline, or site fact). Lead with the prospect's situation, then the relevant value prop.`
+      : `- Every talking point must reference at least one headline by its [index] in sourceRefs.`;
+
+  return `${buildPromptContext(signals, detections, news, seller, hiring)}RULES
 - Only state facts supported by the website text, tech stack, or headlines above. Do NOT invent funding rounds, employee counts, revenue, or partnerships.
 - GROUNDING: For each talking point, set "basis" to where the claim comes from: "news" (a headline - include its index in sourceRefs), "stack" (a detected technology - include its [S#] index in stackRefs), "site" (the company's own website text), "hiring" (an open role or hiring pattern from HIRING SIGNALS), or "inference" (your own reasoning, not directly grounded). Never claim a basis you cannot support.
 - RISKS: List watch-outs about this prospect that the material above actually supports (e.g. layoffs, a hiring freeze, churn signals, a tech mismatch) in risks. For each risk, cite supporting headline indexes in sourceRefs and supporting tech-stack [S#] indexes in stackRefs, and set basis honestly using the same basis definitions as for talking points. If nothing in the material supports a risk, return an empty risks array rather than inventing one.
@@ -425,10 +443,11 @@ interface AnthropicResponse {
   stopReason: string | null;
 }
 
-async function callAnthropic(
+export async function callAnthropic(
   apiKey: string,
   model: string,
   prompt: string,
+  schema: Record<string, unknown> = BRIEF_JSON_SCHEMA,
 ): Promise<AnthropicResponse> {
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
@@ -446,7 +465,7 @@ async function callAnthropic(
       // response to the Brief JSON schema. The response still
       // arrives as a text block and is validated locally as before.
       output_config: {
-        format: { type: 'json_schema', schema: BRIEF_JSON_SCHEMA },
+        format: { type: 'json_schema', schema },
       },
     }),
   });
