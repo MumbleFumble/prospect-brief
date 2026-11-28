@@ -26,7 +26,12 @@ import {
   type BatchState,
 } from '../lib/batch';
 import { generateBrief, generateBriefWithSignals } from '../lib/brief';
-import { regenerateBriefSection, runSectionRegeneration } from '../lib/regenerate';
+import {
+  regenerateAllSections,
+  regenerateBriefSection,
+  runSectionRegeneration,
+} from '../lib/regenerate';
+import { runBatchRegeneration } from '../lib/batch-regenerate';
 import { diffAgainstSavedBrief } from '../lib/diff';
 import { type RunOutcome } from '../lib/run-outcome';
 import { getLatestBatchSummary, listRunsForDomain, recordRun } from '../lib/runs';
@@ -462,6 +467,15 @@ export default defineBackground(() => {
       runSectionRegeneration(msg, {
         getSettings,
         regenerate: regenerateBriefSection,
+        listSaved: listSavedBriefs,
+        persist: persistGeneratedBrief,
+      }).then(sendResponse);
+      return true;
+    }
+    if (msg.type === 'REGENERATE_ALL_SECTIONS') {
+      runBatchRegeneration(msg, {
+        getSettings,
+        regenerateAll: regenerateAllSections,
         listSaved: listSavedBriefs,
         persist: persistGeneratedBrief,
       }).then(sendResponse);

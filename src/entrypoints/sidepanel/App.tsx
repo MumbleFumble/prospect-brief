@@ -13,6 +13,7 @@ import { formatBriefChange, type BriefChange } from '../../lib/diff';
 import { briefToMarkdown } from '../../lib/markdown';
 import { companyQueryFor } from '../../lib/news';
 import type {
+  BatchRegenResponse,
   BriefResponse,
   CollectResponse,
   Detection,
@@ -24,16 +25,23 @@ import type { OutreachDraft } from '../../lib/outreach';
 import type { HiringSignals } from '../../lib/hiring';
 import { getSettings } from '../../lib/settings';
 import {
+  estimateBatchRegeneration,
   estimateSectionRegeneration,
   type BriefSectionKey,
 } from '../../lib/regenerate';
 import {
+  batchRegenFailed,
+  batchRegenSucceeded,
+  initialBatchRegenState,
   initialSectionRegenState,
   sectionRegenFailed,
   sectionRegenSucceeded,
+  startBatchRegen,
   startSectionRegen,
+  type BatchRegenState,
   type SectionRegenState,
 } from '../../lib/section-regen-state';
+
 import { isEditableTarget, shortcutFor, type TargetLike } from '../../lib/shortcuts';
 import { findCompetitors, type CompetitorMatch } from '../../lib/competitors';
 import AccountsView from './AccountsView';
@@ -432,11 +440,14 @@ function SectionRegenControl({
   regen,
   estimate,
   onRegenerateSection,
+  siblingBusy = false,
 }: {
   section: BriefSectionKey;
   regen: SectionRegenState;
   estimate?: number;
   onRegenerateSection: (section: BriefSectionKey) => void;
+  /** A batch run is in flight: no concurrent regeneration. */
+  siblingBusy?: boolean;
 }) {
   const label = SECTION_LABEL[section];
   const busy = regen.busy[section] === true;
@@ -444,7 +455,11 @@ function SectionRegenControl({
   return (
     <div className="no-print">
       <p>
-        <button className="link" disabled={busy} onClick={() => onRegenerateSection(section)}>
+        <button
+          className="link"
+          disabled={busy || siblingBusy}
+          onClick={() => onRegenerateSection(section)}
+        >
           {busy ? `Regenerating ${label}…` : `Regenerate ${label}`}
         </button>
         {estimate != null && <span className="hint"> ≈{estimate} tokens</span>}
@@ -466,6 +481,57 @@ function SectionRegenControl({
   );
 }
 
+/**
+ * The batch control (inc-039): "Regenerate all sections" with
+ * the batch estimate, following the per-section controls'
+ * pattern. Disabled while any regeneration of this brief is in
+ * flight (its own, or a per-section run). After a successful
+ * batch it names any section that stopped on max_tokens.
+ */
+function BatchRegenControl({
+  batchRegen,
+  estimate,
+  anySectionBusy,
+  onRegenerateAll,
+}: {
+  batchRegen: BatchRegenState;
+  estimate?: number;
+  anySectionBusy: boolean;
+  onRegenerateAll: () => void;
+}) {
+  const busy = batchRegen.busy;
+  return (
+    <div className="no-print">
+      <p>
+        <button className="link" disabled={busy || anySectionBusy} onClick={onRegenerateAll}>
+          {busy ? 'Regenerating all sections…' : 'Regenerate all sections'}
+        </button>
+        {estimate != null && <span className="hint"> ≈{estimate} tokens</span>}
+      </p>
+      {busy && (
+        <p className="hint" aria-live="polite">
+          Regenerating all sections…
+        </p>
+      )}
+      {batchRegen.error && (
+        <div role="alert">
+          <p>
+            <strong>Couldn&apos;t regenerate all sections.</strong>
+          </p>
+          <p>{batchRegen.error}</p>
+        </div>
+      )}
+      {!busy && batchRegen.truncatedSections.length > 0 && (
+        <p className="hint" role="status">
+          Note:{' '}
+          {batchRegen.truncatedSections.map((s) => SECTION_LABEL[s]).join(', ')} stopped on
+          max_tokens — that section may be truncated.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BriefSection({
   status,
   news,
@@ -474,6 +540,9 @@ function BriefSection({
   sectionRegen,
   sectionEstimates,
   onRegenerateSection,
+  batchRegen,
+  batchEstimate,
+  onRegenerateAll,
 }: {
   status: BriefStatus;
   news: NewsItem[];
@@ -482,6 +551,9 @@ function BriefSection({
   sectionRegen: SectionRegenState;
   sectionEstimates: Partial<Record<BriefSectionKey, number>>;
   onRegenerateSection: (section: BriefSectionKey) => void;
+  batchRegen: BatchRegenState;
+  batchEstimate?: number;
+  onRegenerateAll: () => void;
 }) {
   return (
     <section>
@@ -544,6 +616,7 @@ function BriefSection({
             regen={sectionRegen}
             estimate={sectionEstimates.overview}
             onRegenerateSection={onRegenerateSection}
+            siblingBusy={batchRegen.busy}
           />
           {briefSectionsForDisplay(status.brief).map((section) => (
             <div key={section.key}>
@@ -563,9 +636,16 @@ function BriefSection({
                 regen={sectionRegen}
                 estimate={sectionEstimates[section.key]}
                 onRegenerateSection={onRegenerateSection}
+                siblingBusy={batchRegen.busy}
               />
             </div>
           ))}
+          <BatchRegenControl
+            batchRegen={batchRegen}
+            estimate={batchEstimate}
+            anySectionBusy={Object.keys(sectionRegen.busy).length > 0}
+            onRegenerateAll={onRegenerateAll}
+          />
           <p className="no-print">
             <button className="link" onClick={onRegenerate} aria-keyshortcuts="r">
               Regenerate
@@ -617,6 +697,8 @@ export default function App() {
   const [sectionEstimates, setSectionEstimates] = useState<
     Partial<Record<BriefSectionKey, number>>
   >({});
+  const [batchRegen, setBatchRegen] = useState<BatchRegenState>(initialBatchRegenState);
+  const [batchEstimate, setBatchEstimate] = useState<number | undefined>(undefined);
 
   // Per-section token estimates from the library's exported
   // estimator (inc-031) — never recomputed UI-side. They depend
@@ -641,6 +723,15 @@ export default function App() {
           );
         }
         setSectionEstimates(estimates);
+        setBatchEstimate(
+          estimateBatchRegeneration(
+            status.signals,
+            status.detections,
+            status.news,
+            s.sellerProfile,
+            status.hiring,
+          ),
+        );
       })
       .catch(() => {});
     return () => {
@@ -674,6 +765,30 @@ export default function App() {
     },
     [status, briefStatus],
   );
+
+  const regenerateAll = useCallback(async () => {
+    if (status.kind !== 'ready' || briefStatus.kind !== 'ready') return;
+    setBatchRegen((s) => startBatchRegen(s));
+    const res = (await chrome.runtime.sendMessage({
+      type: 'REGENERATE_ALL_SECTIONS',
+      brief: briefStatus.brief,
+      signals: status.signals,
+      detections: status.detections,
+      news: status.news,
+      hiring: status.hiring,
+    })) as BatchRegenResponse;
+    if (res.ok) {
+      // All-or-nothing: the returned brief is fully regenerated;
+      // it replaces the displayed brief as-is.
+      setBriefStatus({ kind: 'ready', brief: res.brief, changes: res.changes });
+      setBatchRegen((s) => batchRegenSucceeded(s, res.stopReasons));
+    } else {
+      // Failure: the displayed brief is left exactly as it was
+      // and nothing was saved — the library error, which names
+      // the failing section, is shown verbatim.
+      setBatchRegen((s) => batchRegenFailed(s, res.error));
+    }
+  }, [status, briefStatus]);
 
   const copyMarkdown = useCallback(async () => {
     if (status.kind !== 'ready' || briefStatus.kind !== 'ready') return;
@@ -870,6 +985,9 @@ export default function App() {
               sectionRegen={sectionRegen}
               sectionEstimates={sectionEstimates}
               onRegenerateSection={regenerateSection}
+              batchRegen={batchRegen}
+              batchEstimate={batchEstimate}
+              onRegenerateAll={regenerateAll}
             />
           )}
           {tab === 'signals' && (

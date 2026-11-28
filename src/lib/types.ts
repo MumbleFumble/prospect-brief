@@ -64,6 +64,14 @@ export type CollectRequest =
       hiring: HiringSignals | null;
     }
   | {
+      type: 'REGENERATE_ALL_SECTIONS';
+      brief: Brief;
+      signals: PageSignals;
+      detections: Detection[];
+      news: NewsItem[];
+      hiring: HiringSignals | null;
+    }
+  | {
       type: 'GENERATE_OUTREACH';
       company: string;
       brief: Brief;
@@ -134,6 +142,21 @@ export type CollectResponse =
  */
 export type BriefResponse =
   | { ok: true; brief: Brief; changes?: BriefChange[] | null }
+  | { ok: false; error: string };
+
+/**
+ * Response to REGENERATE_ALL_SECTIONS (inc-039): on success the
+ * batch brief, its diff, and each section's stop_reason (so the
+ * panel can surface a max_tokens section); on failure the
+ * library's section-named error and no brief.
+ */
+export type BatchRegenResponse =
+  | {
+      ok: true;
+      brief: Brief;
+      changes?: BriefChange[] | null;
+      stopReasons: Record<BriefSectionKey, string | null>;
+    }
   | { ok: false; error: string };
 
 /** Response carrying a generated outreach draft, or an error. */

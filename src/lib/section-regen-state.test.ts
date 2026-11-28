@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  batchRegenFailed,
+  batchRegenSucceeded,
+  initialBatchRegenState,
   initialSectionRegenState,
   sectionRegenFailed,
   sectionRegenSucceeded,
+  startBatchRegen,
   startSectionRegen,
 } from './section-regen-state';
 
@@ -45,5 +49,43 @@ describe('section regen panel state (busy isolation)', () => {
     sectionRegenSucceeded(before, 'risks');
     sectionRegenFailed(before, 'overview', 'x');
     expect(before).toEqual(snapshot);
+  });
+});
+
+describe('batch regen panel state (inc-039)', () => {
+  const ALL_END_TURN = {
+    overview: 'end_turn',
+    talkingPoints: 'end_turn',
+    risks: 'end_turn',
+    opportunities: 'end_turn',
+  } as const;
+
+  it('starting a batch sets busy and clears any previous error and truncation note', () => {
+    const dirty = batchRegenFailed(initialBatchRegenState, 'boom');
+    const s = startBatchRegen(dirty);
+    expect(s).toEqual({ busy: true, error: null, truncatedSections: [] });
+  });
+
+  it('success records exactly the max_tokens sections, in batch order', () => {
+    const s = batchRegenSucceeded(initialBatchRegenState, {
+      overview: 'end_turn',
+      talkingPoints: 'max_tokens',
+      risks: 'max_tokens',
+      opportunities: 'end_turn',
+    });
+    expect(s.busy).toBe(false);
+    expect(s.error).toBeNull();
+    expect(s.truncatedSections).toEqual(['talkingPoints', 'risks']);
+  });
+
+  it('success with no max_tokens sections records no truncation note', () => {
+    const s = batchRegenSucceeded(initialBatchRegenState, ALL_END_TURN);
+    expect(s.truncatedSections).toEqual([]);
+  });
+
+  it('failure records the error verbatim and clears busy', () => {
+    const message = "Batch regeneration failed at section 'risks': Invalid section response: invalid-json";
+    const s = batchRegenFailed(startBatchRegen(initialBatchRegenState), message);
+    expect(s).toEqual({ busy: false, error: message, truncatedSections: [] });
   });
 });
