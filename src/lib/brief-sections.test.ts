@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Brief } from './brief';
-import { briefSections } from './brief-sections';
+import { briefSections, briefSectionsForDisplay } from './brief-sections';
 
 function brief(overrides: Partial<Brief> = {}): Brief {
   return {
@@ -55,5 +55,53 @@ describe('briefSections', () => {
       risks: [{ point: 'Only a risk.', sourceRefs: [], stackRefs: [], basis: 'inference' }],
     });
     expect(briefSections(only).map((s) => s.key)).toEqual(['risks']);
+  });
+});
+
+describe('briefSectionsForDisplay (inc-035: empty sections keep their block)', () => {
+  it('an empty risks section is present in the display model with no items', () => {
+    const sections = briefSectionsForDisplay(brief());
+    const risks = sections.find((s) => s.key === 'risks');
+    expect(risks).toBeDefined();
+    expect(risks?.items).toEqual([]);
+    expect(risks?.defaultBasis).toBe('inference');
+  });
+
+  it('an empty opportunities section is present in the display model with no items', () => {
+    const sections = briefSectionsForDisplay(brief());
+    const opportunities = sections.find((s) => s.key === 'opportunities');
+    expect(opportunities).toBeDefined();
+    expect(opportunities?.items).toEqual([]);
+    expect(opportunities?.defaultBasis).toBe('news');
+  });
+
+  it('all three sections are always present, in display order', () => {
+    expect(briefSectionsForDisplay(brief()).map((s) => s.key)).toEqual([
+      'talkingPoints',
+      'risks',
+      'opportunities',
+    ]);
+    // Even a legacy payload missing the newer keys gets all
+    // three blocks (the missing sections read as empty).
+    const legacy = {
+      schemaVersion: 1,
+      overview: 'Acme builds payments infrastructure.',
+      overviewRefs: [],
+      overviewStackRefs: [],
+      overviewBasis: 'site',
+      talkingPoints: [{ point: 'They raised $100M.', sourceRefs: [0], stackRefs: [], basis: 'news' }],
+    } as unknown as Brief;
+    expect(briefSectionsForDisplay(legacy).map((s) => s.key)).toEqual([
+      'talkingPoints',
+      'risks',
+      'opportunities',
+    ]);
+  });
+
+  it('non-empty sections are carried unchanged (same items, same bases as briefSections)', () => {
+    const display = briefSectionsForDisplay(FULL);
+    expect(display).toEqual(briefSections(FULL));
+    expect(display[1].items[0].point).toBe('Hiring freeze reported.');
+    expect(display[2].items[0].point).toBe('Expanding into Europe.');
   });
 });

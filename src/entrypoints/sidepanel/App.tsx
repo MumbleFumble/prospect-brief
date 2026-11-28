@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
 import type { Brief } from '../../lib/brief';
-import { briefSections, type BriefItem } from '../../lib/brief-sections';
+import { briefSectionsForDisplay, type BriefItem } from '../../lib/brief-sections';
 import { formatBriefChange, type BriefChange } from '../../lib/diff';
 import { briefToMarkdown } from '../../lib/markdown';
 import { companyQueryFor } from '../../lib/news';
@@ -497,15 +497,19 @@ function BriefSection({
             estimate={sectionEstimates.overview}
             onRegenerateSection={onRegenerateSection}
           />
-          {briefSections(status.brief).map((section) => (
+          {briefSectionsForDisplay(status.brief).map((section) => (
             <div key={section.key}>
               <h3>{SECTION_HEADING[section.key]}</h3>
-              <BriefItemList
-                items={section.items}
-                defaultBasis={section.defaultBasis}
-                news={news}
-                detections={detections}
-              />
+              {section.items.length > 0 ? (
+                <BriefItemList
+                  items={section.items}
+                  defaultBasis={section.defaultBasis}
+                  news={news}
+                  detections={detections}
+                />
+              ) : (
+                <p className="hint">No items yet.</p>
+              )}
               <SectionRegenControl
                 section={section.key}
                 regen={sectionRegen}
