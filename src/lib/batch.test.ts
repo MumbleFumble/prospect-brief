@@ -181,6 +181,24 @@ describe('classifyBatchGeneration', () => {
     expect(batchStatusForOutcome(outcome)).toBe('partial');
   });
 
+  it('plumbs the detections count through to ref resolution (inc-036)', () => {
+    const stacky: BriefGeneration = {
+      brief: {
+        ...brief,
+        talkingPoints: [
+          { point: 'Ask about widgets.', sourceRefs: [0], stackRefs: [4], basis: 'news' as const },
+        ],
+      },
+      stopReason: 'end_turn',
+      validation: { valid: true, brief, failures: [] },
+    };
+    const withCount = classifyBatchGeneration(stacky, 1, 2);
+    expect(withCount.status).toBe('partial');
+    expect(withCount.reason).toBe('unresolved-refs');
+    // Without the count the stack check skips (skip-when-unknown).
+    expect(classifyBatchGeneration(stacky, 1).status).toBe('ok');
+  });
+
   it('keeps an end_turn + valid schema generation a success', () => {
     const outcome = classifyBatchGeneration(generation('end_turn'), 1);
     expect(outcome).toEqual({

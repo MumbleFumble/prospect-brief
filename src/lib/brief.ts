@@ -92,13 +92,13 @@ export const BriefSchema = z.object({
    * v1 and existing v2 payloads without the section parse exactly
    * as before.
    */
-  risks: z.array(RiskSchema).default([]),
+  risks: z.array(RiskSchema).max(8).default([]),
   /**
    * Grounded positive openings at the prospect. Defaulted (empty)
    * so v1 and existing v2 payloads without the section parse
    * exactly as before.
    */
-  opportunities: z.array(OpportunitySchema).default([]),
+  opportunities: z.array(OpportunitySchema).max(8).default([]),
 });
 
 export type Brief = z.infer<typeof BriefSchema>;

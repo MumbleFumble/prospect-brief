@@ -204,7 +204,7 @@ async function researchDomain(domain: string): Promise<RunOutcome> {
     hiring,
   );
   const brief = generation.brief;
-  const outcome = classifyBatchGeneration(generation, news.length);
+  const outcome = classifyBatchGeneration(generation, news.length, detections.length);
 
   await setCachedBrief({ domain, brief, signals, detections, news, hiring }).catch(() => {});
   await saveBrief({

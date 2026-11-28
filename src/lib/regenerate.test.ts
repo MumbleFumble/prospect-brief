@@ -228,6 +228,26 @@ describe('section schema derivation (drift guard)', () => {
   );
 });
 
+describe('section caps flow from BriefSchema (inc-036)', () => {
+  it('the section schemas carry the max-8 cap by derivation (picked, not hand-mirrored)', () => {
+    const risks = z.toJSONSchema(SECTION_RESPONSE_SCHEMAS.risks) as {
+      properties: Record<string, { maxItems?: number }>;
+    };
+    const opportunities = z.toJSONSchema(SECTION_RESPONSE_SCHEMAS.opportunities) as {
+      properties: Record<string, { maxItems?: number }>;
+    };
+    expect(risks.properties.risks.maxItems).toBe(8);
+    expect(opportunities.properties.opportunities.maxItems).toBe(8);
+  });
+
+  it('a 9-item section response fails section validation', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => ({ point: `Item ${i}.`, sourceRefs: [] }));
+    const result = validateSectionResponse('risks', JSON.stringify({ risks: nine }));
+    expect(result.valid).toBe(false);
+    expect(result.failures.some((f) => f.startsWith('schema:risks'))).toBe(true);
+  });
+});
+
 describe('runSectionRegeneration (REGENERATE_SECTION handler logic)', () => {
   const NEW_BRIEF: Brief = {
     ...structuredClone(EXISTING),

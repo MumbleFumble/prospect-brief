@@ -194,12 +194,14 @@ export interface BatchItem {
 export function classifyBatchGeneration(
   generation: BriefGeneration,
   newsCount: number,
+  detectionsCount?: number,
 ): RunOutcome {
   return classifyRunOutcome({
     schemaValid: generation.validation.valid,
     stopReason: generation.stopReason,
     brief: generation.brief,
     newsCount,
+    detectionsCount,
   });
 }
 

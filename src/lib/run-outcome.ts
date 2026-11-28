@@ -22,6 +22,12 @@ export type RunReasonCode =
   | 'empty-talking-points'
   /** Brief produced but an overviewRef does not index a real headline. */
   | 'unresolved-overview-refs'
+  /**
+   * Brief produced but a section ref (sourceRefs/stackRefs on
+   * talkingPoints, risks or opportunities, or overviewStackRefs)
+   * does not index a real headline/detection (inc-036).
+   */
+  | 'unresolved-refs'
   /** The model stopped on max_tokens, so the response may be cut off. */
   | 'max-tokens'
   /** The run threw a network-level error (fetch failure, DNS, abort…). */
@@ -59,6 +65,8 @@ export interface RunResult {
   brief?: Brief | null;
   /** Number of news items the brief's overviewRefs index into. */
   newsCount?: number;
+  /** Number of detections the brief's stack refs index into (inc-036). */
+  detectionsCount?: number;
 }
 
 const NETWORK_ERROR_RE = /fetch|network|econn|enotfound|eai_again|timed?\s?out|aborted/i;
@@ -81,6 +89,30 @@ function unresolvedOverviewRefs(brief: Brief, newsCount: number): number[] {
     (ref) => !Number.isInteger(ref) || ref < 0 || ref >= newsCount,
   );
 }
+
+/**
+ * Out-of-range refs in one ref array against its count, in
+ * array order, duplicates preserved — the same filter behaviour
+ * as unresolvedOverviewRefs (inc-036).
+ */
+function unresolvedRefs(refs: number[], count: number): number[] {
+  return refs.filter((ref) => !Number.isInteger(ref) || ref < 0 || ref >= count);
+}
+
+/** Out-of-range refs across a section's items, in item order. */
+function unresolvedItemRefs(
+  items: ReadonlyArray<{ sourceRefs: number[]; stackRefs: number[] }>,
+  field: 'sourceRefs' | 'stackRefs',
+  count: number,
+): number[] {
+  return items.flatMap((item) => unresolvedRefs(item[field], count));
+}
+
+const SECTION_LABEL = {
+  talkingPoints: 'Talking points',
+  risks: 'Risks',
+  opportunities: 'Opportunities',
+} as const;
 
 /**
  * Classify one account run's result into a RunOutcome. Pure: no I/O,
@@ -154,6 +186,53 @@ export function classifyRunOutcome(result: RunResult): RunOutcome {
         reason: 'unresolved-overview-refs',
         detail: `Overview cites headline index(es) ${unresolved.join(', ')} but only ${result.newsCount} headline(s) were provided.`,
       };
+    }
+  }
+
+  // Ref resolution beyond the overview (inc-036): every
+  // sourceRefs array resolves against the news count, every
+  // stackRefs array plus overviewStackRefs against the
+  // detections count. Same discipline as the overview check —
+  // partial outcome, the offending indexes and the count named,
+  // and a check is SKIPPED when its count was not supplied
+  // (skip-when-unknown). Check order: section sourceRefs
+  // (talkingPoints, risks, opportunities), then overview stack
+  // refs, then section stackRefs; the first failure wins, as
+  // with every check above.
+  const brief = result.brief;
+  if (typeof result.newsCount === 'number') {
+    for (const key of ['talkingPoints', 'risks', 'opportunities'] as const) {
+      const unresolved = unresolvedItemRefs(brief[key] ?? [], 'sourceRefs', result.newsCount);
+      if (unresolved.length > 0) {
+        return {
+          status: 'partial',
+          reason: 'unresolved-refs',
+          detail: `${SECTION_LABEL[key]} cite headline index(es) ${unresolved.join(', ')} but only ${result.newsCount} headline(s) were provided.`,
+        };
+      }
+    }
+  }
+  if (typeof result.detectionsCount === 'number') {
+    const unresolvedOverviewStack = unresolvedRefs(
+      brief.overviewStackRefs ?? [],
+      result.detectionsCount,
+    );
+    if (unresolvedOverviewStack.length > 0) {
+      return {
+        status: 'partial',
+        reason: 'unresolved-refs',
+        detail: `Overview cites tech index(es) ${unresolvedOverviewStack.join(', ')} but only ${result.detectionsCount} detection(s) were provided.`,
+      };
+    }
+    for (const key of ['talkingPoints', 'risks', 'opportunities'] as const) {
+      const unresolved = unresolvedItemRefs(brief[key] ?? [], 'stackRefs', result.detectionsCount);
+      if (unresolved.length > 0) {
+        return {
+          status: 'partial',
+          reason: 'unresolved-refs',
+          detail: `${SECTION_LABEL[key]} cite tech index(es) ${unresolved.join(', ')} but only ${result.detectionsCount} detection(s) were provided.`,
+        };
+      }
     }
   }
 

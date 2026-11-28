@@ -172,6 +172,51 @@ describe('BriefSchema', () => {
   });
 });
 
+describe('section caps (inc-036: risks/opportunities max 8, like talkingPoints)', () => {
+  const item = (point: string) => ({ point, sourceRefs: [] });
+  const payload = (overrides: Record<string, unknown>) =>
+    JSON.stringify({
+      overview: 'Acme builds payments infrastructure.',
+      talkingPoints: [item('They raised $100M.')],
+      ...overrides,
+    });
+
+  it('accepts 8 risks and 8 opportunities; rejects 9 of either', () => {
+    const eight = Array.from({ length: 8 }, (_, i) => item(`Item ${i}.`));
+    const nine = Array.from({ length: 9 }, (_, i) => item(`Item ${i}.`));
+    expect(() =>
+      BriefSchema.parse(JSON.parse(payload({ risks: eight, opportunities: eight }))),
+    ).not.toThrow();
+    expect(() => BriefSchema.parse(JSON.parse(payload({ risks: nine })))).toThrow();
+    expect(() => BriefSchema.parse(JSON.parse(payload({ opportunities: nine })))).toThrow();
+  });
+
+  it('a 9-item section fails validateBriefResponse through the existing schema path', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => item(`Item ${i}.`));
+    const risksResult = validateBriefResponse(payload({ risks: nine }));
+    expect(risksResult.valid).toBe(false);
+    expect(risksResult.failures.some((f) => f.startsWith('schema:risks'))).toBe(true);
+    const oppResult = validateBriefResponse(payload({ opportunities: nine }));
+    expect(oppResult.valid).toBe(false);
+    expect(oppResult.failures.some((f) => f.startsWith('schema:opportunities'))).toBe(true);
+  });
+
+  it('the cap is in the schema the JSON derivation starts from', () => {
+    // z.toJSONSchema is the derivation source for both the full
+    // brief schema and the section schemas; the Anthropic
+    // transform strips maxItems (unsupported by the API), and
+    // the cap is enforced locally by the validation above —
+    // exactly as talkingPoints' cap has been since inc-017.
+    const derived = z.toJSONSchema(BriefSchema) as {
+      properties: Record<string, { maxItems?: number }>;
+    };
+    expect(derived.properties.risks.maxItems).toBe(8);
+    expect(derived.properties.opportunities.maxItems).toBe(8);
+    expect(derived.properties.talkingPoints.maxItems).toBe(8);
+  });
+
+});
+
 describe('validateBriefResponse', () => {
   const validRaw = JSON.stringify({
     overview: 'Acme builds payments infrastructure.',
@@ -573,6 +618,23 @@ describe('generateBriefWithSignals', () => {
     expect(JSON.stringify(schema)).not.toMatch(
       /"(minLength|maxLength|minItems|maxItems|minimum|maximum|\$schema|default)"/,
     );
+  });
+
+  it('fails a 9-risks response through validation + retry-once (inc-036 cap)', async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => ({
+      point: `Item ${i}.`,
+      sourceRefs: [] as number[],
+    }));
+    const bad = JSON.stringify({
+      overview: 'Example sells widgets.',
+      talkingPoints: [{ point: 'Ask about widgets.', sourceRefs: [0] }],
+      risks: nine,
+    });
+    const fetchFn = mockAnthropic([{ text: bad }, { text: bad }]);
+    await expect(generateBriefWithSignals('key', 'model', signals, [], [])).rejects.toThrow(
+      'schema:risks',
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it('still fails a schemaVersion 3 response through validation + retry-once', async () => {
