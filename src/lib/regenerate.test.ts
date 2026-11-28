@@ -8,8 +8,11 @@ import {
   type Brief,
 } from './brief';
 import {
+  BATCH_SECTION_ORDER,
   buildSectionPrompt,
+  estimateBatchRegeneration,
   estimateSectionRegeneration,
+  regenerateAllSections,
   regenerateBriefSection,
   runSectionRegeneration,
   SECTION_JSON_SCHEMAS,
@@ -245,6 +248,88 @@ describe('section caps flow from BriefSchema (inc-036)', () => {
     const result = validateSectionResponse('risks', JSON.stringify({ risks: nine }));
     expect(result.valid).toBe(false);
     expect(result.failures.some((f) => f.startsWith('schema:risks'))).toBe(true);
+  });
+});
+
+describe('regenerateAllSections (batch regenerate, one brief)', () => {
+  it('regenerates all four sections in the fixed order, each from its own response', async () => {
+    const snapshot = structuredClone(EXISTING);
+    const fetchFn = mockAnthropic([
+      { text: SECTION_RESPONSES.overview },
+      { text: SECTION_RESPONSES.talkingPoints },
+      { text: SECTION_RESPONSES.risks },
+      { text: SECTION_RESPONSES.opportunities },
+    ]);
+    const { brief, stopReasons } = await regenerateAllSections(
+      'key',
+      'model',
+      EXISTING,
+      signals,
+      detections,
+      news,
+    );
+    // Every section's replacement comes from its own response;
+    // no section retains its input value.
+    expect(brief.overview).toBe('New overview.');
+    expect(brief.talkingPoints[0].point).toBe('New point.');
+    expect(brief.risks[0].point).toBe('New risk.');
+    expect(brief.opportunities[0].point).toBe('New opening.');
+    expect(brief.schemaVersion).toBe(2);
+    expect(stopReasons).toEqual({
+      overview: 'end_turn',
+      talkingPoints: 'end_turn',
+      risks: 'end_turn',
+      opportunities: 'end_turn',
+    });
+    // The requests went out in BATCH_SECTION_ORDER.
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    const prompts = fetchFn.mock.calls.map(
+      (c) => (JSON.parse((c[1] as { body: string }).body) as { messages: Array<{ content: string }> }).messages[0].content,
+    );
+    expect(prompts[0]).toContain('Regenerate ONLY the overview (with its overviewRefs');
+    expect(prompts[1]).toContain('Regenerate ONLY the talking points section');
+    expect(prompts[2]).toContain('Regenerate ONLY the risks section');
+    expect(prompts[3]).toContain('Regenerate ONLY the opportunities section');
+    expect(BATCH_SECTION_ORDER).toEqual(['overview', 'talkingPoints', 'risks', 'opportunities']);
+    // The input was not mutated.
+    expect(EXISTING).toEqual(snapshot);
+  });
+
+  it('a failure in a middle section names that section, produces no brief, and does not mutate the input', async () => {
+    const snapshot = structuredClone(EXISTING);
+    mockAnthropic([
+      { text: SECTION_RESPONSES.overview },
+      { text: SECTION_RESPONSES.talkingPoints },
+      { text: 'not json' },
+      { text: 'not json' }, // the section's one retry
+    ]);
+    await expect(
+      regenerateAllSections('key', 'model', EXISTING, signals, detections, news),
+    ).rejects.toThrow("Batch regeneration failed at section 'risks': Invalid section response: invalid-json");
+    expect(EXISTING).toEqual(snapshot);
+  });
+
+  it('prompt-over-ceiling in a section produces no brief and no API call', async () => {
+    const fatDetections: Detection[] = Array.from({ length: 80 }, (_, i) => ({
+      name: `Tech${i}`,
+      category: 'tools',
+      confidence: 'high' as const,
+      evidence: ['e'.repeat(200)],
+    }));
+    const fetchFn = mockAnthropic([]);
+    await expect(
+      regenerateAllSections('key', 'model', EXISTING, signals, fatDetections, news),
+    ).rejects.toThrow(/Batch regeneration failed at section 'overview': prompt-over-ceiling/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('the batch estimate is exactly the sum of the four per-section estimates', () => {
+    const sum = BATCH_SECTION_ORDER.reduce(
+      (acc, section) => acc + estimateSectionRegeneration(section, signals, detections, news),
+      0,
+    );
+    expect(estimateBatchRegeneration(signals, detections, news)).toBe(sum);
+    expect(estimateBatchRegeneration(signals, detections, news)).toBeGreaterThan(0);
   });
 });
 

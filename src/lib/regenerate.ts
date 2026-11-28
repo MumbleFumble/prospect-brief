@@ -340,6 +340,99 @@ export async function regenerateBriefSection(
 }
 
 /* ------------------------------------------------------------------ */
+/* Batch regeneration — all four sections of ONE brief (inc-038)       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The fixed regeneration order for a batch: overview,
+ * talkingPoints, risks, opportunities (display order), so a
+ * batch run is deterministic.
+ */
+export const BATCH_SECTION_ORDER: BriefSectionKey[] = [
+  'overview',
+  'talkingPoints',
+  'risks',
+  'opportunities',
+];
+
+export interface BatchRegeneration {
+  brief: Brief;
+  /** The Anthropic stop_reason of each section's regeneration. */
+  stopReasons: Record<BriefSectionKey, string | null>;
+}
+
+/**
+ * Regenerate ALL FOUR sections of an existing brief in one
+ * operation ("batch regenerate" — one brief, not many
+ * accounts), sequentially in BATCH_SECTION_ORDER, each step
+ * feeding on the accumulating new brief so a later section's
+ * merge never resurrects an earlier section's old content.
+ *
+ * ALL-OR-NOTHING: if any section fails — a named validation
+ * failure, the prompt-over-ceiling guard, or an API error —
+ * the operation throws an Error naming the section that
+ * failed ("Batch regeneration failed at section '<key>': …",
+ * preserving the underlying named failure) and produces NO
+ * brief. The input brief is never mutated, on success or on
+ * failure (regenerateBriefSection never mutates its input).
+ * Saving is the caller's flow, exactly as in inc-031.
+ */
+export async function regenerateAllSections(
+  apiKey: string,
+  model: string,
+  existing: Brief,
+  signals: PageSignals,
+  detections: Detection[],
+  news: NewsItem[],
+  seller: SellerProfile | null = null,
+  hiring: HiringSignals | null = null,
+): Promise<BatchRegeneration> {
+  let current = existing;
+  const stopReasons = {} as Record<BriefSectionKey, string | null>;
+  for (const section of BATCH_SECTION_ORDER) {
+    try {
+      const result = await regenerateBriefSection(
+        apiKey,
+        model,
+        current,
+        section,
+        signals,
+        detections,
+        news,
+        seller,
+        hiring,
+      );
+      current = result.brief;
+      stopReasons[section] = result.stopReason;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new Error(`Batch regeneration failed at section '${section}': ${message}`);
+    }
+  }
+  return { brief: current, stopReasons };
+}
+
+/**
+ * The batch estimate: exactly the sum of the four per-section
+ * estimates from estimateSectionRegeneration — no second
+ * estimator. (Each section's own prompt-over-ceiling guard
+ * still applies inside regenerateBriefSection; a batch adds
+ * no ceiling of its own.)
+ */
+export function estimateBatchRegeneration(
+  signals: PageSignals,
+  detections: Detection[],
+  news: NewsItem[],
+  seller: SellerProfile | null = null,
+  hiring: HiringSignals | null = null,
+): number {
+  return BATCH_SECTION_ORDER.reduce(
+    (sum, section) => sum + estimateSectionRegeneration(section, signals, detections, news, seller, hiring),
+    0,
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Background-message orchestration (inc-032)                          */
 /* ------------------------------------------------------------------ */
 
