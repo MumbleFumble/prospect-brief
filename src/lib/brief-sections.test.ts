@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Brief } from './brief';
-import { briefSections, briefSectionsForDisplay } from './brief-sections';
+import {
+  briefSections,
+  briefSectionsForDisplay,
+  itemSources,
+  resolveSourceRefs,
+  resolveStackRefs,
+} from './brief-sections';
+import type { Detection, NewsItem } from './types';
 
 function brief(overrides: Partial<Brief> = {}): Brief {
   return {
@@ -103,5 +110,57 @@ describe('briefSectionsForDisplay (inc-035: empty sections keep their block)', (
     expect(display).toEqual(briefSections(FULL));
     expect(display[1].items[0].point).toBe('Hiring freeze reported.');
     expect(display[2].items[0].point).toBe('Expanding into Europe.');
+  });
+});
+
+describe('visible sources (inc-037)', () => {
+  const NEWS: NewsItem[] = [
+    { title: 'Acme raises $100M', link: 'https://news.example/1', source: 'TechDaily', pubDate: null },
+    { title: 'Acme expands into Europe', link: 'https://news.example/2', source: null, pubDate: null },
+  ];
+  const DETECTIONS: Detection[] = [
+    { name: 'React', category: 'Frontend', confidence: 'high', evidence: [] },
+  ];
+
+  it('a resolved sourceRef carries the headline title and link', () => {
+    expect(resolveSourceRefs([1], NEWS)).toEqual([
+      { kind: 'news', index: 1, label: 'Acme expands into Europe', link: 'https://news.example/2', resolved: true },
+    ]);
+  });
+
+  it('an unresolvable sourceRef is shown as an honest index label, never dropped', () => {
+    expect(resolveSourceRefs([5], NEWS)).toEqual([
+      { kind: 'news', index: 5, label: 'Headline 6', link: null, resolved: false },
+    ]);
+  });
+
+  it('a resolved stackRef carries the detection name; an unresolvable one an index label', () => {
+    expect(resolveStackRefs([0], DETECTIONS)).toEqual([
+      { kind: 'tech', index: 0, label: 'React', link: null, resolved: true },
+    ]);
+    expect(resolveStackRefs([3], DETECTIONS)).toEqual([
+      { kind: 'tech', index: 3, label: 'Detection 4', link: null, resolved: false },
+    ]);
+  });
+
+  it('itemSources resolves both ref kinds in ref order', () => {
+    const item = { point: 'P.', sourceRefs: [0, 9], stackRefs: [0, 2], basis: 'news' as const };
+    const sources = itemSources(item, NEWS, DETECTIONS);
+    expect(sources.news.map((s) => s.label)).toEqual(['Acme raises $100M', 'Headline 10']);
+    expect(sources.tech.map((s) => s.label)).toEqual(['React', 'Detection 3']);
+  });
+
+  it('a point with empty refs resolves to no sources (renders no source line)', () => {
+    const item = { point: 'P.', sourceRefs: [], stackRefs: [], basis: 'news' as const };
+    expect(itemSources(item, NEWS, DETECTIONS)).toEqual({ news: [], tech: [] });
+  });
+
+  it('the overview refs resolve through the same functions', () => {
+    // The overview renders resolveSourceRefs(overviewRefs) and
+    // resolveStackRefs(overviewStackRefs) — the same resolvers
+    // the item sections use, no overview-specific logic.
+    expect(resolveSourceRefs(FULL.overviewRefs, NEWS)[0].label).toBe('Acme raises $100M');
+    expect(resolveStackRefs(FULL.overviewStackRefs, DETECTIONS)).toEqual([]);
+    expect(resolveStackRefs([0], DETECTIONS)[0].label).toBe('React');
   });
 });

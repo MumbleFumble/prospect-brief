@@ -10,6 +10,7 @@
  * are read as empty.
  */
 import type { Brief } from './brief';
+import type { Detection, NewsItem } from './types';
 
 export type BriefItem = Brief['talkingPoints'][number];
 type Basis = BriefItem['basis'];
@@ -53,4 +54,64 @@ export function briefSectionsForDisplay(brief: Brief): BriefSectionModel[] {
  */
 export function briefSections(brief: Brief): BriefSectionModel[] {
   return briefSectionsForDisplay(brief).filter((s) => s.items.length > 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Visible sources (inc-037)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One ref resolved against the data the panel actually holds
+ * at render time. A ref that resolves carries the headline
+ * title / detection name (and the headline link); a ref that
+ * resolves to NOTHING in the available data is still returned,
+ * with an honest index label ("Headline 3", "Detection 1") —
+ * refs are never silently dropped and titles are never
+ * invented.
+ */
+export interface ResolvedRef {
+  kind: 'news' | 'tech';
+  /** Zero-based index into the run's news/detections arrays. */
+  index: number;
+  /** Headline title / detection name, or the honest index label. */
+  label: string;
+  /** The headline link when resolved; null otherwise. */
+  link: string | null;
+  resolved: boolean;
+}
+
+export function resolveSourceRefs(refs: number[], news: NewsItem[]): ResolvedRef[] {
+  return refs.map((index) => {
+    const item = news[index];
+    return item
+      ? { kind: 'news' as const, index, label: item.title, link: item.link, resolved: true }
+      : { kind: 'news' as const, index, label: `Headline ${index + 1}`, link: null, resolved: false };
+  });
+}
+
+export function resolveStackRefs(refs: number[], detections: Detection[]): ResolvedRef[] {
+  return refs.map((index) => {
+    const detection = detections[index];
+    return detection
+      ? { kind: 'tech' as const, index, label: detection.name, link: null, resolved: true }
+      : {
+          kind: 'tech' as const,
+          index,
+          label: `Detection ${index + 1}`,
+          link: null,
+          resolved: false,
+        };
+  });
+}
+
+/** A brief item's sources, resolved: headlines and tech, each in ref order. */
+export function itemSources(
+  item: BriefItem,
+  news: NewsItem[],
+  detections: Detection[],
+): { news: ResolvedRef[]; tech: ResolvedRef[] } {
+  return {
+    news: resolveSourceRefs(item.sourceRefs ?? [], news),
+    tech: resolveStackRefs(item.stackRefs ?? [], detections),
+  };
 }

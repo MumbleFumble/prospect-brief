@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { groupByCategory } from '../../detection/engine';
 import type { Brief } from '../../lib/brief';
-import { briefSectionsForDisplay, type BriefItem } from '../../lib/brief-sections';
+import {
+  briefSectionsForDisplay,
+  itemSources,
+  resolveSourceRefs,
+  resolveStackRefs,
+  type BriefItem,
+  type ResolvedRef,
+} from '../../lib/brief-sections';
 import { formatBriefChange, type BriefChange } from '../../lib/diff';
 import { briefToMarkdown } from '../../lib/markdown';
 import { companyQueryFor } from '../../lib/news';
@@ -336,6 +343,24 @@ const SECTION_HEADING: Record<string, string> = {
  * (point, basis tag for non-default bases, source links, tech
  * refs), shared by all three sections so they render identically.
  */
+/**
+ * One resolved ref as compact small print (inc-037): "[n] Title"
+ * — a link when the headline resolved, plain text with the
+ * honest index label when it did not; tech refs render as
+ * "[Name]" / "[Detection n]".
+ */
+function ResolvedRefText({ source }: { source: ResolvedRef }) {
+  if (source.kind === 'tech') return <span>[{source.label}]</span>;
+  const text = `[${source.index + 1}] ${source.label}`;
+  return source.link ? (
+    <a href={source.link} target="_blank" rel="noreferrer">
+      {text}
+    </a>
+  ) : (
+    <span>{text}</span>
+  );
+}
+
 function BriefItemList({
   items,
   defaultBasis,
@@ -349,34 +374,41 @@ function BriefItemList({
 }) {
   return (
     <ol>
-      {items.map((t, i) => (
-        <li key={i}>
-          {t.point}
-          {t.basis && t.basis !== defaultBasis && (
-            <small className="basis-tag"> ({t.basis})</small>
-          )}
-          {t.sourceRefs.length > 0 && (
-            <small>
-              {' '}
-              — sources:{' '}
-              {t.sourceRefs.map((r) => (
-                <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
-                  [{r + 1}]
-                </a>
-              ))}
-            </small>
-          )}
-          {(t.stackRefs ?? []).length > 0 && (
-            <small>
-              {' '}
-              — tech:{' '}
-              {(t.stackRefs ?? []).map((r) => (
-                <span key={r}>[{detections[r]?.name ?? `S${r + 1}`}] </span>
-              ))}
-            </small>
-          )}
-        </li>
-      ))}
+      {items.map((t, i) => {
+        const sources = itemSources(t, news, detections);
+        return (
+          <li key={i}>
+            {t.point}
+            {t.basis && t.basis !== defaultBasis && (
+              <small className="basis-tag"> ({t.basis})</small>
+            )}
+            {sources.news.length > 0 && (
+              <small>
+                {' '}
+                — sources:{' '}
+                {sources.news.map((s, j) => (
+                  <span key={s.index}>
+                    {j > 0 && ' · '}
+                    <ResolvedRefText source={s} />
+                  </span>
+                ))}
+              </small>
+            )}
+            {sources.tech.length > 0 && (
+              <small>
+                {' '}
+                — tech:{' '}
+                {sources.tech.map((s, j) => (
+                  <span key={s.index}>
+                    {j > 0 && ' · '}
+                    <ResolvedRefText source={s} />
+                  </span>
+                ))}
+              </small>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -483,11 +515,27 @@ function BriefSection({
             <p>
               <small>
                 Overview sources:{' '}
-                {status.brief.overviewRefs.map((r) => (
-                  <a key={r} href={news[r]?.link} target="_blank" rel="noreferrer">
-                    [{r + 1}]{' '}
-                  </a>
+                {resolveSourceRefs(status.brief.overviewRefs, news).map((s, j) => (
+                  <span key={s.index}>
+                    {j > 0 && ' · '}
+                    <ResolvedRefText source={s} />
+                  </span>
                 ))}
+              </small>
+            </p>
+          )}
+          {(status.brief.overviewStackRefs ?? []).length > 0 && (
+            <p>
+              <small>
+                Overview tech:{' '}
+                {resolveStackRefs(status.brief.overviewStackRefs ?? [], detections).map(
+                  (s, j) => (
+                    <span key={s.index}>
+                      {j > 0 && ' · '}
+                      <ResolvedRefText source={s} />
+                    </span>
+                  ),
+                )}
               </small>
             </p>
           )}

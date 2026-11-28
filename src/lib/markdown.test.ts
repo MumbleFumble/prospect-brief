@@ -46,6 +46,33 @@ describe('briefToMarkdown', () => {
     expect(md).not.toContain('## Recent News');
   });
 
+  it('Markdown source parity (inc-037): item lines carry index labels, the in-document legends resolve them', () => {
+    // The stated exception to screen parity: the export does
+    // not inline titles per point (the screen does); instead
+    // every [n]/[S#] label on an item line resolves in the
+    // document's own Recent News / Likely Tech Stack legends,
+    // which carry the titles, links and names.
+    const md = briefToMarkdown(
+      'Acme',
+      'https://acme.com/',
+      BRIEF,
+      [{ name: 'React', category: 'Frontend', confidence: 'high', evidence: ['script src'] }],
+      [
+        {
+          title: 'Acme raises $100M',
+          link: 'https://news.example/1',
+          source: 'TechDaily',
+          pubDate: '2026-11-01T00:00:00Z',
+        },
+      ],
+    );
+    expect(md).toContain('1. They raised $100M. [1]');
+    expect(md).toContain('## Recent News');
+    expect(md).toContain('[1] [Acme raises $100M](https://news.example/1)');
+    expect(md).toContain('## Likely Tech Stack');
+    expect(md).toContain('- [S1] **React** (Frontend, high confidence)');
+  });
+
   it('includes risks and opportunities with refs and basis, in section order', () => {
     const full: Brief = {
       ...BRIEF,
